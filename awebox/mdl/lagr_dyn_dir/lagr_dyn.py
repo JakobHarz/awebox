@@ -210,7 +210,7 @@ def generate_rotational_dynamics(options, variables, f_nodes, parameters, output
 
         # Rdot = R omega_skew -> R ( kappa/2 (I - R.T R) + omega_skew )
         baumgarte = parameters['theta0', 'kappa_r']
-        orthonormality = baumgarte / 2. * (cas.DM_eye(3) - cas.mtimes(rlocal.T, rlocal))
+        orthonormality = baumgarte / 2. * (cas.DM.eye(3) - cas.mtimes(rlocal.T, rlocal))
         ref_frame_deriv_matrix = drlocal - (cas.mtimes(rlocal, orthonormality + omega_skew))
         ref_frame_derivative = cas.reshape(ref_frame_deriv_matrix, (9, 1))
 

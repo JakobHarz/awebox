@@ -60,7 +60,7 @@ def generate_holonomic_constraints(architecture, outputs, variables, parameters,
         if node in kite_nodes:
             if 'r' + str(node) + str(parent) in list(x_si.keys()):
                 r = cas.reshape(var_scaled['x', 'r' + str(node) + str(parent)], (3, 3))
-                orthonormality = cas.mtimes(r.T, r) - cas.DM_eye(3)
+                orthonormality = cas.mtimes(r.T, r) - cas.DM.eye(3)
                 orthonormality = cas.reshape(orthonormality, (9, 1))
 
                 outputs['tether_length']['orthonormality' + str(node) + str(parent)] = orthonormality
