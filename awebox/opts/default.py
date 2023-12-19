@@ -275,11 +275,16 @@ def set_default_options(default_user_options, help_options):
         ## numerics
         #### NLP options
         ('nlp',  None,               None, 'n_k',                  40,                     ('control discretization [int]', None),'t'),
-        ('nlp',  None,               None,  'discretization',      'direct_collocation',   ('possible options', ['direct_collocation']),'t'),
+        ('nlp',  None,               None,  'discretization',      'direct_collocation',   ('possible options', ['direct_collocation','average_model']),'t'),
         ('nlp',  'collocation',      None, 'd',                    4,                      ('degree of lagrange polynomials inside collocation interval [int]', None),'t'),
         ('nlp',  'collocation',      None, 'scheme',               'radau',                ('collocation scheme', ['radau','legendre']),'x'),
         ('nlp',  'collocation',      None, 'u_param',              'poly',                  ('control parameterization in collocation interval', ['poly','zoh']),'x'),
         ('nlp',  'collocation',      None, 'name_constraints',     False,                  ('names nlp collocation constraints according to the extended model constraint. slow, but useful when debugging licq problems with the health check', [True, False]), 't'),
+
+        # average model options
+        ('nlp', None, None, 'n_reelout', 40, ('control discretization [int]', None), 't'),
+        ('nlp', None, None, 'n_reelin', 40, ('control discretization [int]', None), 't'),
+
         ('nlp',  None,               None, 'phase_fix_reelout',    0.7,                    ('time fraction of reel-out phase', None),'x'),
         ('nlp',  None,               None, 'pumping_range',        [None, None],           ('set predefined pumping range (only in comb. w. phase-fix)', None),'x'),
         ('nlp',  'cost',             None, 'output_quadrature',    True,                   ('use quadrature for integral system outputs in cost function', (True, False)),'t'),

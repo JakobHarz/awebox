@@ -30,6 +30,7 @@
 import awebox.tools.print_operations as print_op
 import awebox.trial_funcs as trial_funcs
 import awebox.ocp.nlp as nlp
+import awebox.ocp.nlp_averagerModel as nlp_averagerModel
 import awebox.opti.optimization as optimization
 import awebox.sim as sim
 import awebox.mdl.model as model
@@ -56,6 +57,9 @@ class Trial(object):
 
     def __init__(self, seed, name = 'trial'):
 
+
+
+
         # check if constructed with solved trial dict
         if 'solution_dict' in seed.keys():
 
@@ -71,9 +75,13 @@ class Trial(object):
             self.__options_seed   = seed
             self.__options        = opts.Options()
             self.__options.fill_in_seed(self.__options_seed)
+
+            # check if we should build the nlp using the average model
+            use_average_model = self.__options['nlp']['discretization'] == 'average_model'
+
             self.__model          = model.Model()
             self.__formulation    = formulation.Formulation()
-            self.__nlp            = nlp.NLP()
+            self.__nlp            = nlp.NLP() if not use_average_model else nlp_averagerModel.NLP_averageModel()
             self.__optimization   = optimization.Optimization()
             self.__visualization  = visualization.Visualization()
             self.__quality        = quality.Quality()
