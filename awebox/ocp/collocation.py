@@ -189,13 +189,13 @@ class Collocation(object):
 
         return None
 
-    def get_xdot(self, nlp_numerics_options, V, model):
+    def get_xdot(self, nlp_numerics_options, V, model, timeScaling = None):
         """ Get state derivates on all collocation nodes based on polynomials
         """
 
         scheme = nlp_numerics_options['collocation']['scheme']
 
-        Vdot = struct_op.construct_Xdot_struct(nlp_numerics_options, model.variables_dict)
+
 
         # size of the finite elements
         h = 1. / self.__n_k
@@ -205,7 +205,12 @@ class Collocation(object):
         # collect the derivatives
         for k in range(self.__n_k):
 
-            tf = struct_op.calculate_tf(nlp_numerics_options, V, k)
+            # if the time scaling is provided, use it
+            # else look up the timescaling parameters from the variables struct
+            if timeScaling is None:
+                tf = struct_op.calculate_tf(nlp_numerics_options, V, k)
+            else:
+                tf = timeScaling
 
             # For all collocation points
             for j in range(self.__d+1):
@@ -221,6 +226,8 @@ class Collocation(object):
                     zdot = zp_jk / h / tf
                     store_derivatives = cas.vertcat(store_derivatives, zdot)
 
+        # generate (and fill) structure with variables for the derivative
+        Vdot = struct_op.construct_Xdot_struct(_copy_optDict, model.variables_dict)
         Xdot = Vdot(store_derivatives)
 
         return Xdot
