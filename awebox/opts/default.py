@@ -282,6 +282,7 @@ def set_default_options(default_user_options, help_options):
         ('nlp',  'collocation',      None, 'name_constraints',     False,                  ('names nlp collocation constraints according to the extended model constraint. slow, but useful when debugging licq problems with the health check', [True, False]), 't'),
 
         # average model options
+        ('nlp', None, None, 'useAverageModel', False, ('option to use average model [false]', None), 't'),
         ('nlp', None, None, 'n_reelout', 40, ('control discretization [int]', None), 't'),
         ('nlp', None, None, 'n_reelin', 40, ('control discretization [int]', None), 't'),
 
