@@ -77,7 +77,7 @@ class Trial(object):
             self.__options.fill_in_seed(self.__options_seed)
 
             # check if we should build the nlp using the average model
-            use_average_model = self.__options['nlp']['discretization'] == 'average_model'
+            use_average_model = self.__options['nlp']['useAverageModel']
 
             self.__model          = model.Model()
             self.__formulation    = formulation.Formulation()

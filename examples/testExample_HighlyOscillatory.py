@@ -41,11 +41,11 @@ options['user_options.wind.u_ref'] = 10.
 options['nlp.n_k'] = 25 # this will be equal to the number of intervals for both reel out and reel in
 options['nlp.phase_fix_reelout'] = 0.0 # we only have one phase in the reelin phase
 options['nlp.useAverageModel'] = True
-options['nlp.n_reelout'] = 25
+options['nlp.n_reelout'] = 50
 options['nlp.n_reelin'] = 25
 
 options['nlp.collocation.u_param'] = 'zoh'
-options['user_options.trajectory.lift_mode.phase_fix'] = 'single_reelout'
+options['user_options.trajectory.lift_mode.phase_fix'] = 'simple'
 options['solver.linear_solver'] = 'ma57' # if HSL is installed, otherwise 'mumps'
 
 # build and optimize the NLP (trial)
