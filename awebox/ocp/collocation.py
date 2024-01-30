@@ -227,7 +227,7 @@ class Collocation(object):
                     store_derivatives = cas.vertcat(store_derivatives, zdot)
 
         # generate (and fill) structure with variables for the derivative
-        Vdot = struct_op.construct_Xdot_struct(_copy_optDict, model.variables_dict)
+        Vdot = struct_op.construct_Xdot_struct(nlp_numerics_options, model.variables_dict)
         Xdot = Vdot(store_derivatives)
 
         return Xdot

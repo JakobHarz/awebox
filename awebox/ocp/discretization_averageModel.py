@@ -41,6 +41,9 @@ import awebox.ocp.var_struct_averageModel as var_struct
 
 import awebox.tools.struct_operations as struct_op
 import awebox.tools.print_operations as print_op
+import awebox.tools.constraint_operations as cstr_op
+from awebox.ocp import ocp_constraint
+
 
 def construct_time_grids(nlp_options):
 
@@ -49,59 +52,69 @@ def construct_time_grids(nlp_options):
 
     time_grids = {}
     nk = nlp_options['n_k']
-    # if nlp_options['discretization'] == 'direct_collocation':
-    direct_collocation = True
-    ms = False
-    d = nlp_options['collocation']['d']
-    scheme = nlp_options['collocation']['scheme']
-    tau_root = cas.vertcat(cas.collocation_points(d, scheme))
-    tcoll = []
+    if nlp_options['discretization'] == 'direct_collocation':
+        direct_collocation = True
+        ms = False
+        d = nlp_options['collocation']['d']
+        scheme = nlp_options['collocation']['scheme']
+        tau_root = cas.vertcat(cas.collocation_points(d, scheme))
+        tcoll = []
 
-    # elif nlp_options['discretization'] == 'multiple_shooting':
-    #     direct_collocation = False
-    #     ms = True
-    #     tcoll = None
+    elif nlp_options['discretization'] == 'multiple_shooting':
+        direct_collocation = False
+        ms = True
+        tcoll = None
 
     # make symbolic time constants
-    # tfsym[0]: duration of the reelooout phase
-    # tfsym[1]: duration of the reelin phase
-    tfsym = cas.SX.sym('tfsym',2)
-    nk_reelout = nlp_options['n_reelout']
-    nk_reelin  = nlp_options['n_reelin']
+    if nlp_options['phase_fix'] == 'single_reelout':
+        tfsym = cas.SX.sym('tfsym',2)
+        nk_reelout = round(nk * nlp_options['phase_fix_reelout'])
 
+        t_switch = tfsym[0] * nk_reelout / nk
+        time_grids['t_switch'] = cas.Function('tgrid_tswitch', [tfsym], [t_switch])
 
-    t_switch = tfsym[0]
-    time_grids['t_switch'] = cas.Function('tgrid_tswitch', [tfsym], [t_switch])
+    else:
+        tfsym = cas.SX.sym('tfsym',1)
 
-    # build time grid for interval nodes x
-    tx_reelout = cas.vertcat(np.linspace(0,1,nk_reelout+1))*tfsym[0]
-    tx_reelin =  tfsym[0] + cas.vertcat(np.linspace(0,1,nk_reelin+1))*tfsym[1]
-    tx = cas.vertcat(tx_reelout, tx_reelin)
-    # build time grid for interval collocation points
+    # initialize
+    tx = []
+    tu = []
 
-    # time grid for the controls
-    tu_reelout = cas.vertcat(np.linspace(0,1,nk_reelout,endpoint=False))*tfsym[0]
-    tu_reelin =  tfsym[0] + cas.vertcat(np.linspace(0,1,nk_reelin,endpoint=False))*tfsym[1]
-    tu = cas.vertcat(tu_reelout, tu_reelin)
+    for k in range(nk+1):
 
-    # time grid for the collocation points
-    h_reelout = tfsym[0]/nk_reelout # step size for the reelout phase
-    h_reelin = tfsym[1]/nk_reelin # step size for the reelin phase
-    tcoll_reelout = cas.vertcat(*[tx_reelout[k] + tau_root*h_reelout for k in range(nk_reelout)]) # (nk_reelout, d)
-    tcoll_reelin = cas.vertcat(*[tx_reelin[k] + tau_root*h_reelin for k in range(nk_reelin)]) # (nk_reelout, d)
-    tcoll = cas.vertcat(tcoll_reelout, tcoll_reelin)
+        # extract correct time constant in case of single_reelout phase fix
+        if nlp_options['phase_fix'] == 'single_reelout':
+            if k < nk_reelout:
+                tf = tfsym[0]
+                k0 = 0.0
+                kcount = k
+            else:
+                tf = tfsym[1]
+                k0 = nk_reelout * tfsym[0]/ tf
+                kcount = k - nk_reelout
+        else:
+            k0 = 0.0
+            kcount = k
+            tf = tfsym
 
-    # time grid for the node points and the collocation points
-    _root_with_zero = cas.vertcat(0.0, tau_root)
-    tx_coll_reelout = cas.vertcat(*[tx_reelout[k] + _root_with_zero*h_reelout for k in range(nk_reelout)])  # (nk_reelout * (d+1))
-    tx_coll_reelout = cas.vertcat(tx_coll_reelout, tfsym[0])  # append time of the last node point
-    tx_coll_reelin = cas.vertcat(*[tx_reelin[k] + _root_with_zero*h_reelin for k in range(nk_reelin)])  # (nk_reelout* (d+1))
-    tx_coll_reelin = cas.vertcat(tx_coll_reelin, tfsym[1])  # append time of the last node point
-    tx_coll = cas.vertcat(tx_coll_reelout, tx_coll_reelin) # (nk_reelout* (d+1) + 1  + nk_reelin* (d+1) +1)
+        # add interval timings
+        tx = cas.vertcat(tx, (k0 + kcount) * tf / float(nk))
+        if k < nk:
+            tu = cas.vertcat(tu, (k0 + kcount) * tf / float(nk))
 
-    # write out collocation grids
-    time_grids['coll'] = cas.Function('tgrid_coll',[tfsym],[tcoll])
-    time_grids['x_coll'] = cas.Function('tgrid_x_coll',[tfsym],[tx_coll])
+        # add collocation timings
+        if direct_collocation and (k < nk):
+            for j in range(d):
+                tcoll = cas.vertcat(tcoll,(k0 + kcount + tau_root[j]) * tf / float(nk))
+
+    if direct_collocation:
+        # reshape tcoll
+        tcoll = tcoll.reshape((d,nk)).T
+        tx_coll = cas.vertcat(cas.horzcat(tu, tcoll).T.reshape((nk*(d+1),1)),tx[-1])
+
+        # write out collocation grids
+        time_grids['coll'] = cas.Function('tgrid_coll',[tfsym],[tcoll])
+        time_grids['x_coll'] = cas.Function('tgrid_x_coll',[tfsym],[tx_coll])
 
     # write out interval grid
     time_grids['x'] = cas.Function('tgrid_x',[tfsym],[tx])
@@ -233,60 +246,26 @@ def discretize(nlp_options, model, formulation):
     # -----------------------------------------------------------------------------
     # discretization setup
     # -----------------------------------------------------------------------------
-    n_reelout = nlp_options['n_reelout'] # number of integration intervals in the reel out phase
-    n_reelin = nlp_options['n_reelin'] # number of integration intervals in the reel in phase
+    nk = nlp_options['n_k']
 
-    assert n_reelout == n_reelin == nlp_options['n_k']
-
+    # direct_collocation = (nlp_options['discretization'] == 'direct_collocation')
+    # multiple_shooting = (nlp_options['discretization'] == 'multiple_shooting')
+    #
+    # if direct_collocation:
     d = nlp_options['collocation']['d']
     scheme = nlp_options['collocation']['scheme']
-    Collocation_reelout = coll_module.Collocation(n_reelout, d, scheme)
-    Collocation_reelin = coll_module.Collocation(n_reelin, d, scheme)
+    Collocation = coll_module.Collocation(nk, d, scheme)
 
     dae = None
     Multiple_shooting = None
 
-
-
-
-    # create a top level structure that contains both structures for the reel out and reel in phase
-
-    # check if phase fix and adjust theta accordingly
-    assert nlp_options['phase_fix'] == 'single_reelout'
-    model_variables_dict = model.variables_dict
-    theta = var_struct.get_phase_fix_theta(model_variables_dict)
-
-
-    # add global entries
-    # when the global variables are before the discretized variables, it leads to prettier kkt matrix spy plots
-    entry_list_global_Variables = [
-        cas.entry('theta', struct = theta),
-        cas.entry('phi',   struct = model.parameters_dict['phi']),
-        cas.entry('xi',    struct = var_struct.get_xi_struct()),
-    ]
-
-    V_reelout = var_struct.setup_nlp_v(nlp_options, model, n_reelout, Collocation_reelout)
-    V_reelin = var_struct.setup_nlp_v(nlp_options, model, n_reelin, Collocation_reelin)
-
-    # put the three structures together into one
-    V = cas.struct_symMX([cas.entry('V_reelout', struct = V_reelout),
-                          cas.entry('V_reelin', struct = V_reelin)]+
-                         entry_list_global_Variables)
-
-
+    V = var_struct.setup_nlp_v(nlp_options, model, Collocation)
     P = setup_nlp_p(V, model)
 
-    Xdot_reelout = Collocation_reelout.get_xdot(nlp_options, V_reelout, model)
-    Xdot_reelin = Collocation_reelin.get_xdot(nlp_options, V_reelin, model)
-
-    [coll_outputs_RO,
-    Integral_outputs_list_RO,
-    Integral_constraint_list_RO] = Collocation_reelout.collocate_outputs_and_integrals(nlp_options, model, formulation, V_reelout, P, Xdot_reelout)
-
-    [coll_outputs_RI,
-    Integral_outputs_list_RI,
-    Integral_constraint_list_RI] = Collocation_reelin.collocate_outputs_and_integrals(nlp_options, model, formulation, V_reelin, P, Xdot_reelin)
-
+    Xdot = Collocation.get_xdot(nlp_options, V, model)
+    [coll_outputs,
+    Integral_outputs_list,
+    Integral_constraint_list] = Collocation.collocate_outputs_and_integrals(nlp_options, model, formulation, V, P, Xdot)
 
     ms_xf = None
     ms_z0 = None
@@ -349,6 +328,32 @@ def discretize(nlp_options, model, formulation):
     ocp_cstr_list, ocp_cstr_struct = constraints.get_constraints(nlp_options, V, P, Xdot, model, dae, formulation,
         Integral_constraint_list, Integral_outputs, Collocation, Multiple_shooting, ms_z0, ms_xf,
             ms_vars, ms_params, Outputs_struct, time_grids)
+
+
+    ## append some extra constraints: for SAM:
+    phase_cstrs_list = ocp_constraint.OcpConstraintList()
+    # phase constraints to start and endpoint of the the reel-out phase
+    var_initial = struct_op.get_variables_at_time(nlp_options, V, Xdot, model.variables, 0)
+    nk_reelout = int(nk * nlp_options['phase_fix_reelout'])
+    var_endpointReelout = struct_op.get_variables_at_time(nlp_options, V, Xdot, model.variables, nk_reelout)
+
+    y_initial = var_initial['x','q10',1]
+    y_endpointReelout = var_endpointReelout['x','q10',1]
+    phase_cstr_start = cstr_op.Constraint(expr=y_initial - 0,
+                                  name='phase_start',
+                                  cstr_type='eq')
+    phase_cstr_end = cstr_op.Constraint(expr=y_endpointReelout - 0,
+                                  name='phase_end',
+                                  cstr_type='eq')
+    phase_cstrs_list.append(phase_cstr_start)
+    phase_cstrs_list.append(phase_cstr_end)
+
+    phase_cstrs_entry_list = [cas.entry('phase_constraints', shape=(2,1))]
+
+    # overwrite the ocp_cstr_struct with new entries
+    ocp_cstr_list.append(phase_cstrs_list)
+    ocp_cstr_entry_list = ocp_cstr_struct.entries + phase_cstrs_entry_list
+    ocp_cstr_struct = cas.struct_symMX(ocp_cstr_entry_list)
 
     return V, P, Xdot_struct, Xdot_fun, ocp_cstr_list, ocp_cstr_struct, Outputs_struct, Outputs_fun, Integral_outputs_struct, Integral_outputs_fun, time_grids, Collocation, Multiple_shooting, global_outputs, global_outputs_fun
 

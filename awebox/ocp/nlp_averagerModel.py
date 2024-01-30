@@ -70,8 +70,6 @@ class NLP_averageModel():
 
             self.print_nlp_dimensions()
 
-            print(asdf)
-
         else:
 
             raise ValueError('Cannot build NLP without first building model and formulation.')
