@@ -86,6 +86,9 @@ def get_scaled_variable_bounds(nlp_options, V, model):
                 if nlp_options['phase_fix'] == 'simple':
                     vars_lb[var_type, name] = model.variable_bounds[var_type][name]['lb']
                     vars_ub[var_type, name] = model.variable_bounds[var_type][name]['ub']
+                elif nlp_options['useAverageModel']:
+                    vars_lb[var_type, name] = model.variable_bounds[var_type][name]['lb']
+                    vars_ub[var_type, name] = model.variable_bounds[var_type][name]['ub']
             else:
                 vars_lb[var_type, name] = model.variable_bounds[var_type][name]['lb']
                 vars_ub[var_type, name] = model.variable_bounds[var_type][name]['ub']
@@ -94,14 +97,26 @@ def get_scaled_variable_bounds(nlp_options, V, model):
             vars_lb[var_type, name] = model.parameter_bounds[name]['lb']
             vars_ub[var_type, name] = model.parameter_bounds[name]['ub']
 
+        elif (var_type == 'x_macro'):
+            # vars_lb[var_type, :, name] = model.variable_bounds['x'][name]['lb']
+            # vars_ub[var_type, :, name] = model.variable_bounds['x'][name]['ub']
+            vars_lb[var_type, :, name] = -cas.inf
+            vars_ub[var_type, :, name] = cas.inf
+        elif (var_type == 'beta'):
+            vars_lb[var_type, name] = -cas.inf
+            vars_ub[var_type, name] = cas.inf
+
+        vars_lb['theta', 't_f', -1] = model.variable_bounds['theta']['t_f']['lb']
+        vars_ub['theta', 't_f', -1] = model.variable_bounds['theta']['t_f']['ub']*10
     return [vars_lb, vars_ub]
 
 def assign_phase_fix_bounds(nlp_options, model, vars_lb, vars_ub, coll_flag, var_type, kdx, ddx, name):
 
     # drag-mode phase fixing: fix y-speed of first system node
-    if (kdx == 0) and (not coll_flag) and (name == 'dq10') and (nlp_options['system_type'] == 'drag_mode'):
-        vars_lb[var_type, 0, name, 1] = 0.0
-        vars_ub[var_type, 0, name, 1] = 0.0
+    if nlp_options['system_type'] == 'drag_mode':
+        if (kdx == 0) and (not coll_flag) and (name == 'dq10'):
+            vars_lb[var_type, 0, name, 1] = 0.0
+            vars_ub[var_type, 0, name, 1] = 0.0
 
     # lift-mode phase fixing
     switch_kdx = round(nlp_options['n_k'] * nlp_options['phase_fix_reelout'])
@@ -110,45 +125,45 @@ def assign_phase_fix_bounds(nlp_options, model, vars_lb, vars_ub, coll_flag, var
     n_k = nlp_options['n_k']
 
     periodic, _, _, _, _, _, _ = operation.get_operation_conditions(nlp_options)
+    if nlp_options['system_type'] == 'lift_mode':
+        if name == 'dl_t':
 
-    if name == 'dl_t' and nlp_options['system_type'] == 'lift_mode':
+            if nlp_options['phase_fix'] == 'single_reelout':
 
-        if nlp_options['phase_fix'] == 'single_reelout':
+                # we cannot constraint ALL THREE OF kdx == 0 and kdx == n_k and periodicity.
+                condition = (var_type == 'x') and (not coll_flag) and nlp_options['collocation']['u_param'] == 'zoh'
+                if periodic:
+                    condition = (condition and (kdx > 0))
 
-            # we cannot constraint ALL THREE OF kdx == 0 and kdx == n_k and periodicity.
-            condition = (var_type == 'x') and (not coll_flag) and nlp_options['collocation']['u_param'] == 'zoh'
-            if periodic:
-                condition = (condition and (kdx > 0))
+                if condition:
+                    if kdx == (n_k):
+                        vars_lb[var_type, kdx, name] = 0.0
+                        vars_ub[var_type, kdx, name] = 0.0
 
-            if condition:
-                if kdx == (n_k):
-                    vars_lb[var_type, kdx, name] = 0.0
-                    vars_ub[var_type, kdx, name] = 0.0
+                    elif in_reelout_phase:
+                        vars_lb[var_type, kdx, name] = 0.0
+                        vars_ub[var_type, kdx, name] = model.variable_bounds[var_type][name]['ub']
+                    else:
+                        vars_lb[var_type, kdx, name] = model.variable_bounds[var_type][name]['lb']
+                        vars_ub[var_type, kdx, name] = 0.0
 
-                elif in_reelout_phase:
-                    vars_lb[var_type, kdx, name] = 0.0
-                    vars_ub[var_type, kdx, name] = model.variable_bounds[var_type][name]['ub']
-                else:
-                    vars_lb[var_type, kdx, name] = model.variable_bounds[var_type][name]['lb']
-                    vars_ub[var_type, kdx, name] = 0.0
+                elif nlp_options['collocation']['u_param'] == 'poly':
 
-            elif nlp_options['collocation']['u_param'] == 'poly':
+                    if kdx in [n_k, switch_kdx] and (not coll_flag):
+                        vars_lb[var_type, kdx, name] = 0.0
+                        vars_ub[var_type, kdx, name] = 0.0
 
-                if kdx in [n_k, switch_kdx] and (not coll_flag):
-                    vars_lb[var_type, kdx, name] = 0.0
-                    vars_ub[var_type, kdx, name] = 0.0
+                    if in_reelout_phase and coll_flag:
+                        vars_lb['coll_var', kdx, ddx, var_type, name] = 0.0
+                        vars_ub['coll_var', kdx, ddx, var_type, name] = model.variable_bounds[var_type][name]['ub']
+                    elif not in_reelout_phase and coll_flag:
+                        vars_lb['coll_var', kdx, ddx, var_type, name] = model.variable_bounds[var_type][name]['lb']
+                        vars_ub['coll_var', kdx, ddx, var_type, name] = 0.0
 
-                if in_reelout_phase and coll_flag:
-                    vars_lb['coll_var', kdx, ddx, var_type, name] = 0.0
-                    vars_ub['coll_var', kdx, ddx, var_type, name] = model.variable_bounds[var_type][name]['ub']
-                elif not in_reelout_phase and coll_flag:
-                    vars_lb['coll_var', kdx, ddx, var_type, name] = model.variable_bounds[var_type][name]['lb']
-                    vars_ub['coll_var', kdx, ddx, var_type, name] = 0.0
+            elif nlp_options['phase_fix'] == 'simple' and (kdx == 0) and (not coll_flag):
 
-        elif nlp_options['phase_fix'] == 'simple' and (kdx == 0) and (not coll_flag):
-
-            vars_lb[var_type, kdx, name] = 0.0
-            vars_ub[var_type, kdx, name] = 0.0
+                vars_lb[var_type, kdx, name] = 0.0
+                vars_ub[var_type, kdx, name] = 0.0
 
     pumping_range = nlp_options['pumping_range']
     if name == 'l_t' and (len(pumping_range) == 2) and (pumping_range[0] is not None) and (pumping_range[1] is not None):

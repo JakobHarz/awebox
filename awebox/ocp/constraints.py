@@ -55,8 +55,16 @@ def get_constraints(nlp_options, V, P, Xdot, model, dae, formulation, Integral_c
     ocp_cstr_list = ocp_constraint.OcpConstraintList()
     ocp_cstr_entry_list = []
 
-    # add initial constraints
+
+    # SAM Modification: Initial Variable is replaced by X0_macro
+    # if nlp_options['useAverageModel']:
+    #     var_initial  = model.variables(cas.vertcat(V['x_micro_minus',0],
+    #                                                cas.inf*cas.DM.ones((37,1))) # nasty, but the other variables are not required for anything
+    #                                    )
+    # else:
     var_initial = struct_op.get_variables_at_time(nlp_options, V, Xdot, model.variables, 0)
+
+    # add initial constraints
     var_ref_initial = struct_op.get_var_ref_at_time(nlp_options, P, V, Xdot, model, 0)
     init_cstr = operation.get_initial_constraints(nlp_options, var_initial, var_ref_initial, model, formulation.xi_dict)
     ocp_cstr_list.append(init_cstr)
@@ -312,13 +320,13 @@ def expand_with_collocation(nlp_options, P, V, Xdot, model, Collocation):
 
     mdl_path_constraints = model.constraints_dict['inequality']
     mdl_dyn_constraints = model.constraints_dict['equality']
-    
+
     if nlp_options['collocation']['u_param'] == 'zoh':
         entry_tuple += (
             cas.entry('shooting',       repeat = [n_k],     shape = mdl_shooting_cstr_sublist.get_expression_list('eq').shape),
             cas.entry('path',           repeat = [n_k],     struct = mdl_path_constraints),
         )
-    
+
     elif nlp_options['collocation']['u_param'] == 'poly':
         entry_tuple += (
             cas.entry('path',           repeat = [n_k, d],     struct = mdl_path_constraints),

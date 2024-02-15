@@ -188,6 +188,25 @@ class ConstraintList:
 
         return None
 
+
+    def remove(self, name:str):
+        """ Removes the constraints of the given name from the list. Raises an error if the constraint is not found."""
+
+        assert name in [cstr.name for cstr in self.__all_list], 'Constraint with name {} not found in list.'.format(name)
+
+        target_cstr: Constraint = self.get_constraint_by_name(name)
+
+        # remove from either the eq or ineq list
+        if target_cstr.is_equality():
+            self.__eq_list.remove(target_cstr)
+        elif target_cstr.is_inequality():
+            self.__ineq_list.remove(target_cstr)
+
+        # remove from the all list
+        self.__all_list.remove(target_cstr)
+
+
+
     def check_completeness_newness_and_type_before_append(self, cstr, cstr_type):
         passes = True
 

@@ -315,7 +315,19 @@ class Collocation(object):
 
         return Integral_outputs_list
 
+    def get_continuity_expression(self, V, kdx) -> cas.MX:
+        """ Returns the expression for the state at the end of the finite element """
 
+        # get an expression for the state at the end of the finite element
+        xf_k = 0
+        for ddx in range(self.__d + 1):
+            if ddx == 0:
+                xf_k += self.__coeff_continuity[ddx] * V['x', kdx]
+            else:
+                xf_k += self.__coeff_continuity[ddx] * V['coll_var', kdx, ddx - 1, 'x']
+
+        # pin the end of the control interval to the start of the new control interval
+        return xf_k
     def get_continuity_constraint(self, V, kdx):
 
         # get an expression for the state at the end of the finite element

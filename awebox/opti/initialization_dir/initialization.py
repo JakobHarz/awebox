@@ -88,6 +88,11 @@ def build_si_initial_guess(nlp, model, formulation, init_options):
     for name in list(model.parameters_dict['phi'].keys()):
         V_init['phi', name] = 1.
 
+    # initial values for SAM parameters
+    V_init['x_macro',:] = V_init['x',0]
+    V_init['x_micro_minus',:] = V_init['x',0]
+    V_init['x_micro_plus',:] = V_init['x',0]
+
     return V_init
 
 
@@ -141,9 +146,15 @@ def set_final_time(init_options, V_init, model, formulation, ntp_dict):
 
     use_phase_fixing = V_init['theta', 't_f'].shape[0] > 1
     if use_phase_fixing:
-        tf_guess = cas.vertcat(tf_guess, tf_guess)
+        tf_guess = cas.vertcat(*[tf_guess]*V_init['theta', 't_f'].shape[0])
+
+    # use_average_model = V_init['theta', 't_f'].shape[0] >= 3
+    # if use_average_model:
+    #     tf_guess_vector = cas.vertcat(*[tf_guess]*V_init['theta', 't_f'].shape[0])
+    #     tf_guess_vector[0] = tf_guess/2
 
     V_init['theta', 't_f'] = tf_guess
+
 
     return V_init
 

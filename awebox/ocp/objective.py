@@ -29,6 +29,7 @@ python-3.5 / casadi-3.4.5
 - refactored from awebox code (elena malz, chalmers; jochem de schutter, alu-fr; rachel leuthold, alu-fr), 2018
 - edited: rachel leuthold, jochem de schutter alu-fr 2018-2021
 '''
+import casadi
 import casadi.tools as cas
 import numpy as np
 from . import collocation
@@ -432,8 +433,16 @@ def find_objective(component_costs, V):
     transition_problem_cost = component_costs['tracking_problem_cost']
     general_problem_cost = component_costs['general_problem_cost']
     homotopy_cost = component_costs['homotopy_cost']
+    SAM_regularization = component_costs['SAM_regularization']
 
-    objective = V['phi','upsilon'] * V['phi', 'nu'] * V['phi', 'eta'] * V['phi', 'psi'] * tracking_problem_cost + (1. - V['phi', 'psi']) * power_problem_cost + general_problem_cost + (1. - V['phi', 'eta']) * nominal_landing_problem_cost + (1. - V['phi','upsilon'])*transition_problem_cost + slack_cost + homotopy_cost
+    objective = (V['phi','upsilon'] * V['phi', 'nu'] * V['phi', 'eta'] * V['phi', 'psi'] * tracking_problem_cost
+                 + (1. - V['phi', 'psi']) * power_problem_cost
+                 + general_problem_cost
+                 + (1. - V['phi', 'eta']) * nominal_landing_problem_cost
+                 + (1. - V['phi','upsilon'])*transition_problem_cost
+                 + slack_cost
+                 + homotopy_cost
+                 + SAM_regularization)
 
     return objective
 
@@ -454,8 +463,62 @@ def get_component_cost_dictionary(nlp_options, V, P, variables, parameters, xdot
     component_costs['power_problem_cost'] = find_power_problem_cost(component_costs)
     component_costs['general_problem_cost'] = find_general_problem_cost(component_costs)
     component_costs['homotopy_cost'] = find_homotopy_cost(component_costs)
+    component_costs['SAM_regularization'] = 0
+
+    if nlp_options['useAverageModel']:
+        # add SAM cost: average dynamics should be minimized
+        weights_state = model.variables_dict['x'](0)
+
+        # penalize changes is the variables that should not change much
+        # weights_dicts = {'q': [0,0.001, 0.001]}
+        weights_dicts = {'q': [0,0.005, 0.005], # we dont penalize the x position
+                         'dq': 0.01,            # we want the velocities to be similar
+                         'r': 0.01,             # we want the orientations to be similar
+                         'omega': 0.01,         # we want the velocities to be similar
+                         'delta': 0.01          # we want the controls to be similar
+                         }
+        # (don't penalize the variables that can change (r, l_t, d_lt, e))
+
+        # use weights for the correct nodes
+        for key in weights_state.keys():
+            if key[:-2] in weights_dicts.keys():
+                weights_state[key] = weights_dicts[key[:-2]]
+            else:
+                weights_state[key] = 0
+        W_x = cas.diag(weights_state.cat)
+
+        from awebox.ocp.discretization_averageModel import OthorgonalCollocation
+        macro_int = OthorgonalCollocation(np.array(cas.collocation_points(nlp_options['d_SAM'], nlp_options['SAM_MaInt_type'])))
+
+        V_matrix = cas.horzcat(*V['v_macro_coll'])
+        sam_regularizaion_second_deriv = 0
+        for i,c_i in enumerate(macro_int.c):
+            # compute the 2nd derivative of the state (1st derivative of the collocation poly)
+            l_i_dot = casadi.vertcat([np.polyder(l)(c_i) for l in macro_int.polynomials])
+            v_i_dot = V_matrix @ l_i_dot
+
+            # compute the quadrature of the 2nd derivative of the state
+            sam_regularizaion_second_deriv += macro_int.b[i] * v_i_dot.T @ W_x @ v_i_dot
+
+
+
+        sam_regularization_first_deriv = 0
+        for i in range(len(V['v_macro_coll'])):
+            sam_regularization_first_deriv += V['v_macro_coll', i].T @ W_x @ V['v_macro_coll', i]
+
+        sam_regularization_similar_durations = 0
+        if V['theta','t_f'].shape[0] >= 3: # (more than 1 micro-integration)
+            res_T = V['theta','t_f',1:-2] - V['theta','t_f',2:-1]
+            sam_regularization_similar_durations += res_T.T@res_T
+
+        component_costs['SAM_regularization'] = 1E-1*(1*sam_regularization_first_deriv
+                                                      + 1*sam_regularizaion_second_deriv
+                                                      + 1*sam_regularization_similar_durations)
+
 
     component_costs['objective'] = find_objective(component_costs, V)
+
+
 
     return component_costs
 

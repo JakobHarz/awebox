@@ -344,11 +344,75 @@ def get_V_theta(V, nlp_numerics_options, k):
     return theta
 
 
+def calculate_SAM_regionIndex(nlp_options: dict, k: int) -> int:
+    """ Calculate the region index for the single reelout phase fix.
+    The integration horizon [0,nk] is divided into `nlp_options['user_options.trajectory.lift_mode.windings']` regions.
+    Where the last two are reseverd for the pre-reelinphase, the reel-in phase, the rest are for the individual micro-integrations of the SAM scheme.
+    """
+
+    n_tf = nlp_options['d_SAM'] + 2
+    n_tf_micros = n_tf - 2 # number of micro-integrations
+    n_k = nlp_options['n_k']
+
+    # proportion of the integrations intervals per phase
+    delta_ns_proportions = np.array([0.5, # pre-reelin
+                         *([1]*n_tf_micros), # micro-integrations
+                         1.5 # reel-in
+                         ])
+    delta_ns_proportions = delta_ns_proportions / np.sum(delta_ns_proportions)
+    delta_ns = delta_ns_proportions*n_k
+    delta_ns_rounded = np.round(delta_ns)
+
+    # correct for rounding errors (by added or removing from reel-in phase)
+    delta_ns_rounded[-1] += n_k - np.sum(delta_ns_rounded)
+
+    assert np.sum(delta_ns_rounded) == n_k, 'sum of the rounded delta_ns must be equal to n_k'
+
+    region_indx = np.sum(k >= np.cumsum(delta_ns_rounded))
+    if region_indx > n_tf - 1:
+        region_indx = n_tf - 1
+
+    return region_indx
+
+def calculate_SAM_regions(nlp_options: dict) -> list:
+    """ Returs a list of lists, where each list contains the indices of the k's that belong to the same SAM region.
+        For example, nk= 10, d_SAM=1, and thus 3 regions, the output will be
+        [[0,1,2],[4,5,6],[7,8,9,10]]
+    """
+    n_k = nlp_options['n_k']
+    n_tf = nlp_options['d_SAM'] + 2
+    return_list = [[] for _ in range(n_tf)] # generate a list with n_tf empty lists
+    for k in range(n_k):
+        return_list[calculate_SAM_regionIndex(nlp_options, k)].append(k)
+    return return_list
+
+
+
+def calculate_tf_index(nlp_options, k):
+    """ Calculates the index of the discretization region (with a constant tf) that the index `k` belongs to """
+    nk = nlp_options['n_k']
+    if nlp_options['useAverageModel']:
+        assert nlp_options['phase_fix'] == 'single_reelout', 'phase fix must be single_reelout for SAM'
+        return calculate_SAM_regionIndex(nlp_options, k)
+
+    elif nlp_options['phase_fix'] == 'single_reelout':
+        k_reelout = round(nk * nlp_options['phase_fix_reelout'])
+        if k < k_reelout:
+            return 0
+        else:
+            return 1
+    else:
+        raise Exception('Case not covered!')
+
 def calculate_tf(params, V, k):
 
     nk = params['n_k']
 
-    if params['phase_fix'] == 'single_reelout':
+    if params['useAverageModel']:
+        assert params['phase_fix'] == 'single_reelout', 'phase fix must be single_reelout for SAM'
+        tf =  V['theta', 't_f', calculate_SAM_regionIndex(params, k)]
+
+    elif params['phase_fix'] == 'single_reelout':
         if k < round(nk * params['phase_fix_reelout']):
             tf = V['theta', 't_f', 0]
         else:
@@ -358,11 +422,50 @@ def calculate_tf(params, V, k):
 
     return tf
 
+
+def calculate_kdx_SAM(params, V, t) -> tuple:
+    """ """
+    n_k = params['n_k']
+    indeces_regions = calculate_SAM_regions(params)
+    delta_ns = np.array([len(region) for region in indeces_regions]) # number integration intervals in each region
+    tfs = V['theta', 't_f',:].full().flatten()
+    delta_ts = tfs/n_k * delta_ns # duration of each phase in physical time
+    ts_cumsum = np.cumsum(np.append(0,delta_ts)) # cumulative sum of the phase durations
+    region_index = np.sum(t >= ts_cumsum) - 1 # index of the region where t is located
+
+    if region_index > tfs.shape[0] - 1:
+        region_index = tfs.shape[0] - 1
+
+    # print('tfs' + str(tfs))
+    # print('delta_ts' + str(delta_ts))
+    # print('ts_cumsum' + str(ts_cumsum))
+    # print('region_index' + str(region_index))
+    # print('t: ' + str(t))
+
+    # calculate the (continuous) integration index of the given time
+    n_t = np.cumsum(np.append(0,delta_ns))[region_index] + (t - ts_cumsum[region_index])*n_k/tfs[region_index]
+
+    kdx = int(np.floor(n_t))
+    tau = n_t - kdx
+
+    # special case: last integration interval
+    if kdx == n_k:
+        kdx = n_k - 1
+        tau = 1.0
+
+    assert kdx < n_k, 'kdx must be smaller than n_k'
+    assert kdx >= 0, 'kdx must be positive'
+    assert tau <= 1.0, 'tau must be smaller than 1.0'
+    assert tau >= 0.0, 'tau must be positive'
+
+    return kdx, tau
 def calculate_kdx(params, V, t):
 
     n_k = params['n_k']
-
-    if params['phase_fix'] == 'single_reelout':
+    if params['useAverageModel']:
+        assert params['phase_fix'] == 'single_reelout', 'phase fix must be single_reelout for SAM'
+        kdx,tau = calculate_kdx_SAM(params, V, t)
+    elif params['phase_fix'] == 'single_reelout':
         k_reelout = round(n_k * params['phase_fix_reelout'])
         t_reelout = k_reelout*V['theta','t_f',0]/n_k
         if t <= t_reelout:
@@ -636,7 +739,7 @@ def get_V_index(canonical):
             name = canonical[1]
 
         else:
-            message = 'unexpected (distinct) canonical_index handing'
+            message = 'unexpected (distinct) canonical_index handing with canonical: ' + str(canonical)
             awelogger.logger.error(message)
             raise Exception(message)
 

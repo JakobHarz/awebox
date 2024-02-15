@@ -104,8 +104,16 @@ def find_time_period(nlp_numerics_options, V):
         time_period_zeroth = find_phase_fix_time_period_zeroth(nlp_numerics_options, V)
         time_period_first = find_phase_fix_time_period_first(nlp_numerics_options, V)
 
-        # average over collocation nodes
-        time_period = (time_period_zeroth + time_period_first)
+        if nlp_numerics_options['useAverageModel'] == True:
+            regions_indeces = struct_op.calculate_SAM_regions(nlp_numerics_options)
+            delta_ns = [region_indeces.__len__() for region_indeces in regions_indeces]
+            assert sum(delta_ns) == nlp_numerics_options['n_k']
+            time_period = 0
+            for i in range(V['theta', 't_f'].shape[0]):
+                time_period += delta_ns[i] * V['theta', 't_f', i] / nlp_numerics_options['n_k']
+        else:
+            # average over collocation nodes
+            time_period = (time_period_zeroth + time_period_first)
     else:
         time_period = V['theta', 't_f']
 

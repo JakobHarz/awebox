@@ -36,50 +36,85 @@ import awebox.ocp.collocation as collocation
 import awebox.tools.print_operations as print_op
 
 
-def setup_nlp_v(nlp_options, model, nk, Collocation=None):
+def setup_nlp_v(nlp_options, model, Collocation=None):
 
     # extract necessary inputs
-    models_variables_dict = model.variables_dict
+    variables_dict = model.variables_dict
+    nk = nlp_options['n_k']
+    multiple_shooting = (nlp_options['discretization'] == 'multiple_shooting')
+    direct_collocation = (nlp_options['discretization'] == 'direct_collocation')
+
+    # check if phase fix and adjust theta accordingly
+    if nlp_options['useAverageModel']:
+        assert nlp_options['phase_fix'] == 'single_reelout', 'phase fix must be single_reelout for SAM'
+        entry_list = []
+        for name in list(variables_dict['theta'].keys()):
+            if name == 't_f':
+                n_tf = nlp_options['d_SAM'] + 2 # the number of timescaling parameters
+                entry_list.append(cas.entry('t_f', shape=(n_tf, 1)))
+            else:
+                entry_list.append(cas.entry(name, shape=variables_dict['theta'][name].shape))
+
+        theta = cas.struct_symSX(entry_list)
+
+
+    elif nlp_options['phase_fix'] == 'single_reelout':
+        theta = get_phase_fix_theta(variables_dict)
+    else:
+        theta = variables_dict['theta']
+
+
 
     # define interval struct entries for controls and states
     entry_tuple = (
-        cas.entry('x', repeat = [nk+1], struct = models_variables_dict['x']),
+        cas.entry('x', repeat = [nk+1], struct = variables_dict['x']),
         )
 
     # add additional variables according to provided options
-    assert nlp_options['collocation']['u_param'] == 'zoh'
-    entry_tuple += (
-        cas.entry('u',  repeat = [nk],   struct = models_variables_dict['u']),
-    )
+    if multiple_shooting or nlp_options['collocation']['u_param'] == 'zoh':
+        entry_tuple += (
+            cas.entry('u',  repeat = [nk],   struct = variables_dict['u']),
+        )
 
-    # add state derivative variables at interval
-    entry_tuple += (
-        cas.entry('xdot', repeat = [nk], struct= models_variables_dict['xdot']),
-    )
+        # add state derivative variables at interval
+        entry_tuple += (
+            cas.entry('xdot', repeat = [nk], struct= variables_dict['xdot']),
+        )
 
-    # add algebraic variables at shooting nodes for constraint evaluation
-    entry_tuple += (cas.entry('z', repeat = [nk],   struct= models_variables_dict['z']),)
+        # add algebraic variables at shooting nodes for constraint evaluation
+        entry_tuple += (cas.entry('z', repeat = [nk],   struct= variables_dict['z']),)
 
-    # add collocation node variables
-    if Collocation is None:
-        message = 'a None instance of Collocation was passed to the NLP variable structure generator'
-        raise Exception(message)
+    if direct_collocation:
 
-    d = nlp_options['collocation']['d'] # interpolating polynomial order
-    coll_var = Collocation.get_collocation_variables_struct(models_variables_dict, 'zoh')
-    entry_tuple += (cas.entry('coll_var', struct = coll_var, repeat= [nk,d]),)
+        # add collocation node variables
+        if Collocation is None:
+            message = 'a None instance of Collocation was passed to the NLP variable structure generator'
+            raise Exception(message)
+
+        d = nlp_options['collocation']['d'] # interpolating polynomial order
+        coll_var = Collocation.get_collocation_variables_struct(variables_dict, nlp_options['collocation']['u_param'])
+        entry_tuple += (cas.entry('coll_var', struct = coll_var, repeat= [nk,d]),)
 
     # add global entries
     # when the global variables are before the discretized variables, it leads to prettier kkt matrix spy plots
-    # entry_list = [
-    #     cas.entry('theta', struct = theta),
-    #     cas.entry('phi',   struct = model.parameters_dict['phi']),
-    #     cas.entry('xi',    struct = get_xi_struct()),
-    #     entry_tuple
-    # ]
+    entry_list = [
+        cas.entry('theta', struct = theta),
+        cas.entry('phi',   struct = model.parameters_dict['phi']),
+        cas.entry('xi',    struct = get_xi_struct()),
+        entry_tuple
+    ]
+
+    if nlp_options['useAverageModel']:
+        entry_list += [cas.entry('sam_misc', struct = cas.struct_symMX([cas.entry('beta')])),
+                       cas.entry('x_macro', struct = model.variables_dict['x'], repeat = [2]),
+                       cas.entry('x_macro_coll', struct = model.variables_dict['x'], repeat = [nlp_options['d_SAM']]),
+                       cas.entry('v_macro_coll', struct = model.variables_dict['x'], repeat = [nlp_options['d_SAM']]),
+                       cas.entry('x_micro_minus', struct=model.variables_dict['x'], repeat=[nlp_options['d_SAM']]),
+                       cas.entry('x_micro_plus', struct=model.variables_dict['x'], repeat=[nlp_options['d_SAM']]),
+                       ]
 
     # generate structure
-    V = cas.struct_symMX([entry_tuple])
+    V = cas.struct_symMX(entry_list)
 
     # print_op.print_variable_info('NLP', V)
 

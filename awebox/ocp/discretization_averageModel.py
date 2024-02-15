@@ -29,7 +29,7 @@ python-3.5 / casadi-3.4.5
 - authors: elena malz 2016
            rachel leuthold, jochem de schutter alu-fr 2017-21
 '''
-
+import casadi
 import casadi.tools as cas
 import numpy as np
 
@@ -44,6 +44,144 @@ import awebox.tools.print_operations as print_op
 import awebox.tools.constraint_operations as cstr_op
 from awebox.ocp import ocp_constraint
 
+# todo: move this somewhere or replace with existing collocation functions
+class OthorgonalCollocation:
+    """
+    Base Class for all RK Integration Methods, stores the Butcher Tableau of the method.
+    """
+    c: np.ndarray = None
+    A = None
+    b = None
+    d = None
+
+    def getButcher(self) -> (np.ndarray,np.ndarray,np.ndarray):
+        """Returns the Butcher Tableau (c,A,b) of the Integrator"""
+        if self.A is None:
+            raise NotImplementedError
+        return self.c, self.A, self.b
+
+    @property
+    def isExplicit(self):
+        return np.allclose(self.A, np.tril(self.A))
+
+    @property
+    def isCollocationMethod(self):
+        # check if there are double entries in the c vector
+        return len(self.c) == len(np.unique(self.c))
+
+    def __init__(self, collPoints: np.ndarray):
+        assert collPoints.ndim == 1
+        assert np.all(np.unique(collPoints, return_counts=True)[1] <= 1), 'CollPoints have to be distinct!'
+        # assert np.all(collPoints <= 1) and np.all(0 <= collPoints), 'CollPoints must be between 0 and 1'
+
+        self.d = collPoints.shape[-1]
+
+        # create list of polynomials
+        self._ls = []
+        for j in range(self.d):
+            l = np.poly1d([1])
+            for r in range(self.d):
+                if r != j:
+                    l *= np.poly1d([1, -collPoints[r]]) / (collPoints[j] - collPoints[r])
+            self._ls.append(l)
+
+
+        self.c = collPoints
+        self.b = np.array([np.polyint(l)(1) for l in self._ls])
+        self.A = np.array([[np.polyint(l)(ci) for l in self._ls] for ci in self.c])
+
+    @property
+    def polynomials(self) -> list:
+        """A list of the numpy polynomials that correspond to the lagrange polynomials"""
+        return self._ls
+
+    def __str__(self):
+        return f"Oth. Coll. with {self.d} stages"
+
+    def getPolyEvalFunction(self, shape: tuple, includeZero: bool = False, includeOne: bool = False, fixedValues: list = None) -> cas.Function:
+        """
+        Generates a casadi function that evaluates the polynomial at a given point t of the form
+
+        p(t) = F(t, [x0], x1, ..., xd)
+
+        where t is a scalar in [0,1] and x0, ..., xd are the collocation points of the provided shape.
+
+        If fixed values for the nodes x0, ..., xd are provided, the function will be of the form
+
+        p(t) = F(t)
+
+        :param shape: the shape of the collocation nodes, can be matrices or vectors
+        :param includeZero: if true, the collocation point at time 0 is included
+        :param fixedValues: a list of fixed values for the nodes, if provided, the function will be of the form x(t) = F(t)
+        """
+        assert self.isCollocationMethod is True, "Can only reconstruct polynomial for collocation methods!"
+
+        assert not(includeOne and includeZero), 'either includeOne or includeZero can be true, not both!'
+
+        # append zero if needed
+        if includeZero:
+            collPoints = cas.DM(np.concatenate([[0],self.c]))
+            d = self.d + 1
+        elif includeOne:
+            collPoints = cas.DM(np.concatenate([self.c,[1]]))
+            d = self.d + 1
+        else:
+            collPoints = cas.DM(self.c)
+            d = self.d
+
+        nx = shape[0]*shape[1]
+        t = cas.SX.sym('t')
+
+        if fixedValues is None:
+            # create symbolic variables for the nodes
+            Xs = []
+            for i in np.arange((0 if includeZero else 1),self.d+1):
+                Xs.append(cas.SX.sym(f'x{i}', shape))
+
+        else:
+            assert len(fixedValues) == d, f"The number of fixed values ({len(fixedValues)}) must be equal to the number of collocation points ({d})!"
+            assert all([v.shape == shape for v in fixedValues]), "The shape of the fixed values must be equal to the shape of the collocation points!"
+            assert all([type(v) == cas.DM for v in fixedValues]), "The fixed values must be of type casadi.DM!"
+            Xs = fixedValues
+
+        # reshape input variables into a matrix of shape (nx, d)
+        p_vals = cas.horzcat(*[X.reshape((nx, 1)) for X in Xs])
+
+        # create list of polynomials
+        _ls = []
+        for j in range(d):
+            l = 1
+            for r in range(d):
+                if r != j:
+                    l *= (t -collPoints[r]) / (collPoints[j] - collPoints[r])
+            _ls.append(l)
+
+        # evaluate polynomials
+        sum = cas.DM.zeros((nx, 1))
+        for i in range(d):
+            sum += p_vals[:, i] * _ls[i]
+
+        # reshape the result into the original shape
+        result = cas.reshape(sum,shape)
+
+        if fixedValues is None:
+            return cas.Function('polyEval', [t] + Xs, [result])
+        else:
+            return cas.Function('polyEval', [t], [result])
+
+class ForwardEuler():
+    c = np.array([0])
+    A = np.array([[0]])
+    b = np.array([1])
+    d = c.shape[0]
+
+
+class Lobatto3A_Order4:
+    # (trapazoidal rule)
+    c = np.array([0, 0.5, 1])
+    A = np.array([[0, 0, 0],[5/24,1/3,-1/24], [1/6, 2/3, 1/6]])
+    b = np.array([1/6, 2/3, 1/6])
+    d = c.shape[0]
 
 def construct_time_grids(nlp_options):
 
@@ -66,7 +204,10 @@ def construct_time_grids(nlp_options):
         tcoll = None
 
     # make symbolic time constants
-    if nlp_options['phase_fix'] == 'single_reelout':
+    if nlp_options['useAverageModel']:
+        tfsym = cas.SX.sym('tfsym', nlp_options['d_SAM'] + 2)
+        regions_indexes = struct_op.calculate_SAM_regions(nlp_options)
+    elif nlp_options['phase_fix'] == 'single_reelout':
         tfsym = cas.SX.sym('tfsym',2)
         nk_reelout = round(nk * nlp_options['phase_fix_reelout'])
 
@@ -80,32 +221,30 @@ def construct_time_grids(nlp_options):
     tx = []
     tu = []
 
-    for k in range(nk+1):
+    tcurrent = 0
+    for k in range(nk):
 
-        # extract correct time constant in case of single_reelout phase fix
-        if nlp_options['phase_fix'] == 'single_reelout':
-            if k < nk_reelout:
-                tf = tfsym[0]
-                k0 = 0.0
-                kcount = k
-            else:
-                tf = tfsym[1]
-                k0 = nk_reelout * tfsym[0]/ tf
-                kcount = k - nk_reelout
-        else:
-            k0 = 0.0
-            kcount = k
-            tf = tfsym
+        # speed of time of the specific interval
+        tf_current = tfsym[struct_op.calculate_tf_index(nlp_options, k)]
 
         # add interval timings
-        tx = cas.vertcat(tx, (k0 + kcount) * tf / float(nk))
-        if k < nk:
-            tu = cas.vertcat(tu, (k0 + kcount) * tf / float(nk))
+        tx.append(tcurrent)
+        tu.append(tcurrent)
 
         # add collocation timings
-        if direct_collocation and (k < nk):
+        if direct_collocation:
             for j in range(d):
-                tcoll = cas.vertcat(tcoll,(k0 + kcount + tau_root[j]) * tf / float(nk))
+                tcoll.append(tcurrent + tau_root[j] * tf_current/nk)
+
+        # update current time
+        tcurrent = tcurrent + tf_current/nk
+
+    # add last interval time to tx for last integration node
+    tx.append(tcurrent)
+
+    tu = cas.vertcat(*tu)
+    tx = cas.vertcat(*tx)
+    tcoll = cas.vertcat(*tcoll)
 
     if direct_collocation:
         # reshape tcoll
@@ -330,29 +469,126 @@ def discretize(nlp_options, model, formulation):
             ms_vars, ms_params, Outputs_struct, time_grids)
 
 
-    ## append some extra constraints: for SAM:
-    phase_cstrs_list = ocp_constraint.OcpConstraintList()
+    # ---------------------------------------------
+    # modify the constraints for SAM
+    # ---------------------------------------------
+    SAM_cstrs_list = ocp_constraint.OcpConstraintList()
     # phase constraints to start and endpoint of the the reel-out phase
-    var_initial = struct_op.get_variables_at_time(nlp_options, V, Xdot, model.variables, 0)
-    nk_reelout = int(nk * nlp_options['phase_fix_reelout'])
-    var_endpointReelout = struct_op.get_variables_at_time(nlp_options, V, Xdot, model.variables, nk_reelout)
 
-    y_initial = var_initial['x','q10',1]
-    y_endpointReelout = var_endpointReelout['x','q10',1]
-    phase_cstr_start = cstr_op.Constraint(expr=y_initial - 0,
-                                  name='phase_start',
-                                  cstr_type='eq')
-    phase_cstr_end = cstr_op.Constraint(expr=y_endpointReelout - 0,
-                                  name='phase_end',
-                                  cstr_type='eq')
-    phase_cstrs_list.append(phase_cstr_start)
-    phase_cstrs_list.append(phase_cstr_end)
 
-    phase_cstrs_entry_list = [cas.entry('phase_constraints', shape=(2,1))]
+
+
+    SAM_cstrs_entry_list = []
+
+    N_SAM = nlp_options['N_SAM']
+    d_SAM = nlp_options['d_SAM']
+    # assert d_SAM == 1, 'for now we only support d_SAM = 1'
+    # macroIntegrator = Lobatto3A_Order4()
+    macroIntegrator = OthorgonalCollocation(np.array(cas.collocation_points(d_SAM,nlp_options['SAM_MaInt_type'])))
+    # macroIntegrator = ForwardEuler()
+    c_macro,A_macro,b_macro = macroIntegrator.c,macroIntegrator.A,macroIntegrator.b
+    assert d_SAM == c_macro.size
+
+    tf_regions_indices = struct_op.calculate_SAM_regions(nlp_options)
+    SAM_regions_indeces = tf_regions_indices[1:-1] # we are not intersted in the first region (pre-reelout) and the last region (reelin)
+
+    # vz_phase = V['sam_misc','beta']
+
+    # iterate micro-integrations
+    n_SAM_microints = SAM_regions_indeces.__len__()
+
+
+    for i in range(n_SAM_microints):
+
+        n_first = SAM_regions_indeces[i][0] # first interval index of the region
+        n_last = SAM_regions_indeces[i][-1] # last interval index of the region
+
+        # 1. XMINUS: connect x_minus with start of the micro integration
+        xminus = model.variables_dict['x'](V['x_micro_minus',i])
+        micro_connect_xminus = cstr_op.Constraint(expr= xminus.cat - V['x', n_first],
+                                      name= f'micro_connect_xminus_{i}',
+                                      cstr_type='eq')
+        SAM_cstrs_list.append(micro_connect_xminus)
+        SAM_cstrs_entry_list.append(cas.entry(f'micro_connect_xminus_{i}', shape=xminus.shape))
+
+        # 2. XPLUS: replace the continutiy constraint for the last collocation interval of the reelout phase
+        xplus = model.variables_dict['x'](V['x_micro_plus', i])
+        ocp_cstr_list.get_constraint_by_name(f'continuity_{n_last}').expr = xplus.cat - model.variables_dict['x'](Collocation.get_continuity_expression(V,n_last)).cat
+
+
+        # 3. PHASE CONSTRAINT:
+        # phase_cstr_end = cstr_op.Constraint(expr= V['x_micro_minus', i, 'dq10', 1] - V['x_micro_plus', i, 'dq10', 1],
+        #                                       name=f'phase_end_{i}',
+        #                                       cstr_type='eq')
+        # SAM_cstrs_list.append(phase_cstr_end)
+        # SAM_cstrs_entry_list.append(cas.entry(f'phase_end_{i}', shape=(1, 1)))
+
+        # 4. SAM dynamics approximation - vcoll
+        ada_vcoll_cstr = cstr_op.Constraint(expr= (xplus.cat - xminus.cat)*N_SAM - V['v_macro_coll', i],
+                                              name=f'ada_vcoll_cstr_{i}',
+                                              cstr_type='eq')
+        SAM_cstrs_list.append(ada_vcoll_cstr)
+        SAM_cstrs_entry_list.append(cas.entry(f'ada_vcoll_cstr_{i}', shape=xminus.shape))
+
+
+        # 5. Connect to Macro integraiton point
+        ada_type = nlp_options['SAM_ADAtype']
+        assert ada_type in ['FD','BD','CD'], 'only FD, BD, CD are supported'
+        ada_coeffs = {'FD': [1,-1, 0], 'BD':[0,-1,1], 'CD':[1,-2,1]}[ada_type]
+        # if i==0:
+        #     expr_connect = V['x_micro_minus', i] - V['x_macro_coll', i]
+        # elif i==d_SAM-1:
+        #     expr_connect = V['x_micro_plus', i] - V['x_macro_coll', i]
+        # else: # somewhere in the middle
+        #     expr_connect = V['x_micro_minus', i] +V['x_micro_plus', i] - 2* V['x_macro_coll', i]
+
+        expr_connect = (ada_coeffs[0]*V['x_micro_minus', i]
+                        + ada_coeffs[1]*V['x_macro_coll', i]
+                        + ada_coeffs[2]*V['x_micro_plus', i])
+        micro_connect_macro = cstr_op.Constraint(expr= expr_connect,
+                                      name=f'micro_connect_macro_{i}',
+                                      cstr_type='eq')
+        SAM_cstrs_list.append(micro_connect_macro)
+        SAM_cstrs_entry_list.append(cas.entry(f'micro_connect_macro_{i}', shape=xminus.shape))
+
+    # MACRO INTEGRATION
+    X_macro_start = model.variables_dict['x'](V['x_macro', 0])
+    X_macro_end = model.variables_dict['x'](V['x_macro', -1])
+
+    # START: connect X0_macro and the x_plus
+    ocp_cstr_list.get_constraint_by_name(f'continuity_{tf_regions_indices[0][-1]}').expr = X_macro_start.cat - model.variables_dict['x'](
+        Collocation.get_continuity_expression(V, tf_regions_indices[0][-1])).cat
+
+    # Macro RK scheme
+    for i in range(d_SAM):
+        macro_rk_cstr = cstr_op.Constraint(expr=V['x_macro_coll',i] - (X_macro_start.cat + cas.horzcat(*V['v_macro_coll'])@A_macro[i,:].T),
+                                              name=f'macro_rk_cstr_{i}',
+                                              cstr_type='eq')
+        SAM_cstrs_list.append(macro_rk_cstr)
+        SAM_cstrs_entry_list.append(cas.entry(f'macro_rk_cstr_{i}', shape=xminus.shape))
+
+
+
+    # END: connect x_plus with end of the reelout
+    macro_end_cstr = cstr_op.Constraint(expr= X_macro_end.cat  - (X_macro_start.cat + cas.horzcat(*V['v_macro_coll'])@b_macro),
+                                  name='macro_end_cstr',
+                                  cstr_type='eq')
+    SAM_cstrs_list.append(macro_end_cstr)
+    SAM_cstrs_entry_list.append(cas.entry('macro_end_cstr', shape=xminus.shape))
+
+    # connect endpoint of the macro-integration with start of the reelin phase
+    macro_connect_reelin = cstr_op.Constraint(expr= X_macro_end.cat - V['x', tf_regions_indices[-2][-1] + 1],
+                                  name='macro_connect_reelin',
+                                  cstr_type='eq')
+    SAM_cstrs_list.append(macro_connect_reelin)
+    SAM_cstrs_entry_list.append(cas.entry('macro_connect_reelin', shape=xminus.shape))
+
+
+
 
     # overwrite the ocp_cstr_struct with new entries
-    ocp_cstr_list.append(phase_cstrs_list)
-    ocp_cstr_entry_list = ocp_cstr_struct.entries + phase_cstrs_entry_list
+    ocp_cstr_list.append(SAM_cstrs_list)
+    ocp_cstr_entry_list = ocp_cstr_struct.entries + SAM_cstrs_entry_list
     ocp_cstr_struct = cas.struct_symMX(ocp_cstr_entry_list)
 
     return V, P, Xdot_struct, Xdot_fun, ocp_cstr_list, ocp_cstr_struct, Outputs_struct, Outputs_fun, Integral_outputs_struct, Integral_outputs_fun, time_grids, Collocation, Multiple_shooting, global_outputs, global_outputs_fun
