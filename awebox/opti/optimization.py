@@ -194,10 +194,44 @@ class Optimization(object):
         sweep_toggle = False
         cost_fun = nlp.cost_components[0]
         cost = struct_op.evaluate_cost_dict(cost_fun, V_plot, self.__p_fix_num)
+        global_outputs_opt = nlp.global_outputs(nlp.global_outputs_fun(V_plot, self.__p_fix_num))
         V_ref = self.__V_ref
-        visualization.plot(V_plot, visualization.options, [self.__outputs_init,
-                                                           self.__outputs_opt, self.__outputs_ref],
-                           self.__integral_outputs_opt, self.__debug_flags, self.__time_grids, cost, self.__name, sweep_toggle, V_ref, fig_name=fig_name)
+        print('__make_debug_plot CALLED!')
+        # visualization.plot(V_plot, visualization.options, [self.__outputs_init,
+        #                                                    self.__outputs_opt, self.__outputs_ref],
+        #                    self.__integral_outputs_opt, self.__debug_flags, self.__time_grids, cost, self.__name, sweep_toggle, V_ref, global_outputs_opt,fig_name=fig_name)
+
+
+        import numpy as np
+        plt.figure('State After Initial Phase')
+        time_grid_ref = nlp.time_grids['x'](V_ref['theta', 't_f']).full().flatten()
+        time_grid_plot = nlp.time_grids['x'](V_plot['theta', 't_f']).full().flatten()
+
+        regions_indeces = struct_op.calculate_SAM_regions(nlp.options)
+
+        # plot_states = ['q10','dq10','l_t','e']
+        plot_states = ['q21', 'dq21', 'l_t', 'e']
+
+        for index, state_name in enumerate(plot_states):
+            plt.subplot(2, 2, index + 1)
+            state_traj_init = np.hstack(V_plot['x', :, state_name]).T
+            plt.plot(time_grid_plot,state_traj_init,label=state_name, color = f'C{index}')
+
+            state_traj_ref = np.hstack(V_ref['x', :, state_name]).T
+            plt.plot(time_grid_ref, state_traj_ref, label=state_name + '_ref', color=f'C{index}', linestyle='--')
+
+            # add phase switches
+            plt.axvline(x=time_grid_plot[regions_indeces[1][0]], color='k', linestyle='--')
+            plt.axvline(x=time_grid_plot[regions_indeces[-1][0]], color='k', linestyle='--')
+
+            for region_indeces in regions_indeces[1:-1]:
+                plt.axvline(x=time_grid_plot[region_indeces[0]], color='b', linestyle='--')
+
+            plt.xlabel('time [s]')
+
+            plt.legend()
+        plt.tight_layout()
+        plt.show()
 
         return None
 
@@ -734,7 +768,8 @@ class Optimization(object):
 
     @V_opt.setter
     def V_opt(self, value):
-        awelogger.logger.warning('Cannot set V_opt object.')
+        self.__V_opt = value
+        #awelogger.logger.warning('Cannot set V_opt object.')
 
     @property
     def V_ref(self):

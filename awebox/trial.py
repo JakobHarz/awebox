@@ -30,7 +30,6 @@
 import awebox.tools.print_operations as print_op
 import awebox.trial_funcs as trial_funcs
 import awebox.ocp.nlp as nlp
-import awebox.ocp.nlp_averagerModel as nlp_averagerModel
 import awebox.opti.optimization as optimization
 import awebox.sim as sim
 import awebox.mdl.model as model
@@ -81,7 +80,7 @@ class Trial(object):
 
             self.__model          = model.Model()
             self.__formulation    = formulation.Formulation()
-            self.__nlp            = nlp.NLP() if not use_average_model else nlp_averagerModel.NLP_averageModel()
+            self.__nlp            = nlp.NLP()
             self.__optimization   = optimization.Optimization()
             self.__visualization  = visualization.Visualization()
             self.__quality        = quality.Quality()
@@ -165,9 +164,7 @@ class Trial(object):
         if self.__optimization.solve_succeeded:
             awelogger.logger.info('Trial "%s" optimized.', self.__name)
             awelogger.logger.info('Trial optimization time: %s',print_op.print_single_timing(self.__timings['optimization']))
-
         else:
-
             awelogger.logger.info('WARNING: Optimization of Trial (%s) failed.', self.__name)
 
         if (not intermediate_solve and recalibrate_viz):

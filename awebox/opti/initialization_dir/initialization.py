@@ -88,10 +88,19 @@ def build_si_initial_guess(nlp, model, formulation, init_options):
     for name in list(model.parameters_dict['phi'].keys()):
         V_init['phi', name] = 1.
 
-    # initial values for SAM parameters
-    V_init['x_macro',:] = V_init['x',0]
-    V_init['x_micro_minus',:] = V_init['x',0]
-    V_init['x_micro_plus',:] = V_init['x',0]
+    if 'x_macro' in V_init.keys():
+        # initial values for SAM parameters
+        V_init['x_macro',:] = V_init['x',0]
+
+        regions_indices_SAM = struct_op.calculate_SAM_regions(nlp.options)
+
+        for index in range(nlp.options['d_SAM']):
+            multipliers_ADA = {'FD':[1,0],'BD':[0,1],'CD':[0.5,0.5],}[nlp.options['SAM_ADAtype']]
+            V_init['x_macro_coll',index] = (multipliers_ADA[0]*V_init['x',regions_indices_SAM[index+1][0]]
+                                            + multipliers_ADA[1]*V_init['x',regions_indices_SAM[index+1][1]])
+
+            V_init['x_micro_minus',index] = V_init['x',regions_indices_SAM[index+1][0]]
+            V_init['x_micro_plus',index] = V_init['x',regions_indices_SAM[index+1][-1]]
 
     return V_init
 
@@ -144,14 +153,25 @@ def set_final_time(init_options, V_init, model, formulation, ntp_dict):
     else:
         tf_guess = standard.guess_final_time(init_options, model)
 
-    use_phase_fixing = V_init['theta', 't_f'].shape[0] > 1
-    if use_phase_fixing:
-        tf_guess = cas.vertcat(*[tf_guess]*V_init['theta', 't_f'].shape[0])
+    # use_phase_fixing = V_init['theta', 't_f'].shape[0] > 1
+    # if use_phase_fixing:
+    #     tf_guess = cas.vertcat(*[tf_guess]*V_init['theta', 't_f'].shape[0])
 
-    # use_average_model = V_init['theta', 't_f'].shape[0] >= 3
-    # if use_average_model:
-    #     tf_guess_vector = cas.vertcat(*[tf_guess]*V_init['theta', 't_f'].shape[0])
-    #     tf_guess_vector[0] = tf_guess/2
+    use_average_model = V_init['theta', 't_f'].shape[0] >= 3
+    if use_average_model:
+        Nwindings = V_init['theta', 't_f'].shape[0] - 1
+        dSAM = Nwindings - 1
+        Tsingle = tf_guess/Nwindings
+        tf_guess_vector = cas.DM.zeros(V_init['theta', 't_f'].shape)
+
+        tf_cycle = Tsingle*dSAM/(0.7)
+        tf_pRO_RI = Tsingle/(0.3)
+
+        tf_guess_vector[0] = tf_pRO_RI
+        tf_guess_vector[1:-1] = tf_cycle
+        tf_guess_vector[-1] = tf_pRO_RI
+
+        tf_guess = tf_guess_vector # this is stupid
 
     V_init['theta', 't_f'] = tf_guess
 

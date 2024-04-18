@@ -477,7 +477,7 @@ def get_component_cost_dictionary(nlp_options, V, P, variables, parameters, xdot
                          'omega': 0.01,         # we want the velocities to be similar
                          'delta': 0.01          # we want the controls to be similar
                          }
-        # (don't penalize the variables that can change (r, l_t, d_lt, e))
+        # (don't penalize the variables that can change (l_t, d_lt, e))
 
         # use weights for the correct nodes
         for key in weights_state.keys():
@@ -491,14 +491,14 @@ def get_component_cost_dictionary(nlp_options, V, P, variables, parameters, xdot
         macro_int = OthorgonalCollocation(np.array(cas.collocation_points(nlp_options['d_SAM'], nlp_options['SAM_MaInt_type'])))
 
         V_matrix = cas.horzcat(*V['v_macro_coll'])
-        sam_regularizaion_second_deriv = 0
+        sam_regularizaion_third_deriv = 0
         for i,c_i in enumerate(macro_int.c):
             # compute the 2nd derivative of the state (1st derivative of the collocation poly)
-            l_i_dot = casadi.vertcat([np.polyder(l)(c_i) for l in macro_int.polynomials])
+            l_i_dot = casadi.vertcat([l.deriv(2)(c_i) for l in macro_int.polynomials])
             v_i_dot = V_matrix @ l_i_dot
 
             # compute the quadrature of the 2nd derivative of the state
-            sam_regularizaion_second_deriv += macro_int.b[i] * v_i_dot.T @ W_x @ v_i_dot
+            sam_regularizaion_third_deriv += macro_int.b[i] * v_i_dot.T @ W_x @ v_i_dot
 
 
 
@@ -511,8 +511,9 @@ def get_component_cost_dictionary(nlp_options, V, P, variables, parameters, xdot
             res_T = V['theta','t_f',1:-2] - V['theta','t_f',2:-1]
             sam_regularization_similar_durations += res_T.T@res_T
 
-        component_costs['SAM_regularization'] = 1E-1*(1*sam_regularization_first_deriv
-                                                      + 1*sam_regularizaion_second_deriv
+        
+        component_costs['SAM_regularization'] = 5E-0*(1E-4*sam_regularization_first_deriv
+                                                      + 1*sam_regularizaion_third_deriv
                                                       + 1*sam_regularization_similar_durations)
 
 

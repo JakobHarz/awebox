@@ -92,6 +92,10 @@ class Pmpc(object):
         # periodic indexing
         self.__index = 0
 
+        # FOR DEBUG: Make stuff visible
+        self.index = self.__index
+        self.compute_time_grids = self.__compute_time_grids
+
         # initialize
         self.__initialize_solver()
 
@@ -114,9 +118,9 @@ class Pmpc(object):
         self.__trial.nlp.build(self.__trial.options['nlp'], self.__trial.model, self.__trial.formulation)
         self.__trial.visualization.build(self.__trial.model, self.__trial.nlp, 'MPC control', self.__trial.options)
 
-        # remove state constraints at k = 0
-        self.__trial.nlp.V_bounds['lb']['x',0] = - np.inf
-        self.__trial.nlp.V_bounds['ub']['x',0] = np.inf
+        # remove state constraints at k = 0 (TODO SAM: NO, REMOVE FOR ALL)
+        self.__trial.nlp.V_bounds['lb']['x',:] = - np.inf
+        self.__trial.nlp.V_bounds['ub']['x',:] = np.inf
         if self.__mpc_options['terminal_point_constr']:
             self.__trial.nlp.V_bounds['lb']['x',-1] = - np.inf
             self.__trial.nlp.V_bounds['ub']['x',-1] = np.inf
@@ -313,12 +317,30 @@ class Pmpc(object):
         for weight in ['Q', 'R', 'P']:
             if weight in self.__mpc_options.keys():
                 weights[weight] = self.__mpc_options[weight]
+                awelogger.logger.info(f"Using user-defined {weight} weighting matrix...")
             else:
                 if weight in ['Q', 'P']:
-                    weights[weight] = np.ones((self.__nx,1))
+
+
+                    # custom weighting for the states
+                    weigths_states = self.trial.model.variables_dict['x'](1)
+                    for key in self.trial.model.variables_dict['x'].keys():
+                        if key in ['e','l','dl']:
+                            weigths_states[key] = 1E-4
+                        elif key.startswith('dq') or key.startswith('q'):
+                            weigths_states[key] = 1000.0
+                        else:
+                            weigths_states[key] = 1.0
+
+                    weights[weight] = weigths_states
+
                 elif weight == 'R':
                     weights[weight] = np.ones((self.__nu,1))
-        weights['Z'] = np.ones((self.__nz,1))
+                    # awelogger.logger.info(f"Using user-defined R weighting matrix for the controls: 0")
+                    # weights[weight] = np.zeros((self.__nu,1))
+
+        # weights['Z'] = np.ones((self.__nz,1))
+        weights['Z'] = np.zeros((self.__nz,1))
         self.__weights = weights
 
         # create tracking function

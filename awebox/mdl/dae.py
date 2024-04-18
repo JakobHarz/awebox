@@ -86,7 +86,7 @@ class Dae(object):
 
         # create rootfinder
         g = cas.Function('g',[self.__z.cat,self.__x.cat,self.__p.cat],[self.__dae['alg']])
-        G = cas.rootfinder('G', 'fast_newton', g, {'jit': True})
+        G = cas.rootfinder('G', 'fast_newton', g, {"compiler": "shell", "jit": True, "jit_options": {"compiler": "gcc"}})
 
         self.__rootfinder = G
 

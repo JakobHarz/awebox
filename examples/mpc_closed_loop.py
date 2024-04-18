@@ -42,6 +42,8 @@ trial.optimize()
 trial.plot(['isometric'])
 plt.show()
 
+# print(asdf)
+
 # set-up closed-loop simulation
 N_mpc = 10 # MPC horizon
 N_sim = 200  # closed-loop simulation steps

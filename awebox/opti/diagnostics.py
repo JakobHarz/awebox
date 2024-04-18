@@ -181,7 +181,7 @@ def compute_position_indicators(power_and_performance, plot_dict):
         q10_2 = q10[2][i]
         elevation += [np.arccos(np.linalg.norm(np.array([q10_0, q10_1, 0.0])) / np.linalg.norm(np.array([q10_0, q10_1, q10_2])))]
         azimuth += [np.arctan2(q10_1, q10_0)]
-        
+
     # (average) main tether vector
     elevation = np.rad2deg(np.mean(elevation))
     azimuth = np.rad2deg(np.mean(azimuth))
@@ -240,8 +240,9 @@ def compute_position_indicators(power_and_performance, plot_dict):
     for i in range(dq10[0].shape[0]):
         dq = np.array([dq10[0][i], dq10[1][i], dq10[2][i]])
         q = np.array([q10[0][i], q10[1][i], q10[2][i]])
-        dq10hat += [np.linalg.norm(
-            dq.squeeze() - np.dot(dq.squeeze().T, q.squeeze() / np.linalg.norm(q)) * q.squeeze() / np.linalg.norm(q))]
+        # dq10hat += [np.linalg.norm(
+        #     dq.squeeze() - np.dot(dq.squeeze().T, q.squeeze() / np.linalg.norm(q)) * q.squeeze() / np.linalg.norm(q))]
+        dq10hat += [0]
 
     dq10_av = np.mean(np.array(dq10hat))
     power_and_performance['dq10_av'] = dq10_av

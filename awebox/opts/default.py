@@ -283,6 +283,7 @@ def set_default_options(default_user_options, help_options):
 
         # average model options
         ('nlp', None, None, 'useAverageModel', False, ('option to use average model [false]', None), 't'),
+        ('nlp', None, None, 'flag_SAM_reconstruction', False, ('if true, the variables are reconstructed from an SAM solution', None), 't'),
         ('nlp', None, None, 'N_SAM', 2, ('number of "skipped" cycles [int]', None), 't'),
         ('nlp', None, None, 'd_SAM', 1, ('number of microInts (cycles)', None), 't'),
         ('nlp', None, None, 'SAM_ADAtype', 1, ('type of the average dynamics approximation', ['FD','BD','CD']), 't'),

@@ -38,6 +38,8 @@ import casadi.tools as cas
 import numpy as np
 import awebox.tools.struct_operations as struct_op
 from awebox.logger.logger import Logger as awelogger
+from awebox.ocp.ocp_outputs import find_time_period
+
 
 def generate_trial_data_csv(trial, name, freq, rotation_representation):
     """
@@ -233,6 +235,10 @@ def generate_optimal_model(trial, param_options = None):
                 else:
                     if trial.optimization.V_opt['theta','t_f'].shape[0] == 1:
                         t_f = trial.optimization.V_opt['theta','t_f']
+                        variables.append(cas.SX(t_f))
+                    elif trial.options['nlp']['useAverageModel'] or trial.options['nlp']['flag_SAM_reconstruction']:
+                        # do something
+                        t_f = find_time_period(trial.options['nlp'], trial.optimization.V_opt)
                         variables.append(cas.SX(t_f))
                     else:
                         t_f = trial.visualization.plot_dict['output_vals'][1]['final', 'time_period', 'val']

@@ -37,6 +37,7 @@ import copy
 from functools import reduce
 from awebox.logger.logger import Logger as awelogger
 import awebox.tools.performance_operations as perf_op
+from awebox.ocp.discretization_averageModel import construct_time_grids_SAM_reconstruction
 
 
 def subkeys(casadi_struct, key):
@@ -350,27 +351,26 @@ def calculate_SAM_regionIndex(nlp_options: dict, k: int) -> int:
     Where the last two are reseverd for the pre-reelinphase, the reel-in phase, the rest are for the individual micro-integrations of the SAM scheme.
     """
 
-    n_tf = nlp_options['d_SAM'] + 2
-    n_tf_micros = n_tf - 2 # number of micro-integrations
+    n_windings = nlp_options['d_SAM'] + 1
+    n_regions = nlp_options['d_SAM'] + 2
     n_k = nlp_options['n_k']
+    n_micros = nlp_options['d_SAM']
+
+    # 1. reserve 30% of the ingeration intervals for reelin & pre-reelout
+    n_single_micro = round(n_k*0.7/n_micros)
+    n_RI_pRO_intervals = n_k - n_single_micro*n_micros
+    n_pRO_intervals = round(0.2*n_RI_pRO_intervals)
+    n_RI_intervals = n_RI_pRO_intervals - round(0.2*n_RI_pRO_intervals)
 
     # proportion of the integrations intervals per phase
-    delta_ns_proportions = np.array([0.5, # pre-reelin
-                         *([1]*n_tf_micros), # micro-integrations
-                         1.5 # reel-in
-                         ])
-    delta_ns_proportions = delta_ns_proportions / np.sum(delta_ns_proportions)
-    delta_ns = delta_ns_proportions*n_k
-    delta_ns_rounded = np.round(delta_ns)
+    delta_ns = np.array([n_pRO_intervals]  + [n_single_micro]*n_micros + [n_RI_intervals])
+    assert np.sum(delta_ns) == n_k, 'sum of the rounded delta_ns must be equal to n_k'
 
-    # correct for rounding errors (by added or removing from reel-in phase)
-    delta_ns_rounded[-1] += n_k - np.sum(delta_ns_rounded)
+    # note: the 70/30 relation is also hardcoded in the initialization of the t_fs
 
-    assert np.sum(delta_ns_rounded) == n_k, 'sum of the rounded delta_ns must be equal to n_k'
-
-    region_indx = np.sum(k >= np.cumsum(delta_ns_rounded))
-    if region_indx > n_tf - 1:
-        region_indx = n_tf - 1
+    region_indx = np.sum(k >= np.cumsum(delta_ns))
+    if region_indx > n_regions - 1:
+        region_indx = n_regions - 1
 
     return region_indx
 
@@ -436,12 +436,6 @@ def calculate_kdx_SAM(params, V, t) -> tuple:
     if region_index > tfs.shape[0] - 1:
         region_index = tfs.shape[0] - 1
 
-    # print('tfs' + str(tfs))
-    # print('delta_ts' + str(delta_ts))
-    # print('ts_cumsum' + str(ts_cumsum))
-    # print('region_index' + str(region_index))
-    # print('t: ' + str(t))
-
     # calculate the (continuous) integration index of the given time
     n_t = np.cumsum(np.append(0,delta_ns))[region_index] + (t - ts_cumsum[region_index])*n_k/tfs[region_index]
 
@@ -459,12 +453,43 @@ def calculate_kdx_SAM(params, V, t) -> tuple:
     assert tau >= 0.0, 'tau must be positive'
 
     return kdx, tau
+
+_timegrid_reconstruct_save = None
+def calculate_kdx_SAM_reconstruction(params, V, t) -> tuple:
+    """ Calculate the interval index kdx and the remaining relative interval tau duration of the interval in which the time t is located.
+    This is valid only IF THE VARIABLES V are reconstructed versions of the SAM variables.
+    """
+    assert params['flag_SAM_reconstruction'], 'This function is only valid for SAM reconstruction'
+
+    # 1. build timegrid from t_f_opt
+    global _timegrid_reconstruct_save
+    if _timegrid_reconstruct_save is None:
+        print('constructing timegrid for SAM reconstruction')
+        _timegrid_reconstruct_save = construct_time_grids_SAM_reconstruction(params)
+    else:
+        # print('using saved timegrid for SAM reconstruction')
+        pass
+    timegrid_f = _timegrid_reconstruct_save
+    timegrid_intervals = timegrid_f['x'](V['theta', 't_f']).full().flatten()
+
+    # 2. find the region index using numpy.argmax(timegrid > t) - 1
+    index = np.argmax(timegrid_intervals > t) - 1
+    delta_t = timegrid_intervals[index + 1] - timegrid_intervals[index] # todo: this approximation could be better
+
+    # 3. find the kdx and tau using the region index and the timegrid
+    kdx = index
+    tau = (t - timegrid_intervals[index]) / delta_t
+
+    return kdx, tau
+
 def calculate_kdx(params, V, t):
 
     n_k = params['n_k']
     if params['useAverageModel']:
         assert params['phase_fix'] == 'single_reelout', 'phase fix must be single_reelout for SAM'
-        kdx,tau = calculate_kdx_SAM(params, V, t)
+        kdx, tau = calculate_kdx_SAM(params, V, t)
+    elif params['flag_SAM_reconstruction']:
+        kdx, tau = calculate_kdx_SAM_reconstruction(params, V, t)
     elif params['phase_fix'] == 'single_reelout':
         k_reelout = round(n_k * params['phase_fix_reelout'])
         t_reelout = k_reelout*V['theta','t_f',0]/n_k

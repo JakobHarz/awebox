@@ -1178,8 +1178,8 @@ def plot_bounds(plot_dict, var_type, name, jdx, tgrid_ip, p):
     else:
         ub = bounds['ub']
     if lb > -np.inf:
-        plt.plot(tgrid_ip, [lb*scaling]*len(tgrid_ip), linestyle='dotted', color = p[-1].get_color())
+        plt.plot(tgrid_ip, np.array([lb*scaling]*len(tgrid_ip)).squeeze(), linestyle='dotted', color = p[-1].get_color())
     if ub < np.inf:
-        plt.plot(tgrid_ip, [ub*scaling]*len(tgrid_ip), linestyle='dotted', color = p[-1].get_color())
+        plt.plot(tgrid_ip, np.array([ub*scaling]*len(tgrid_ip)).squeeze(), linestyle='dotted', color = p[-1].get_color())
 
     return None

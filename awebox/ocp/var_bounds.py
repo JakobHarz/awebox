@@ -106,8 +106,12 @@ def get_scaled_variable_bounds(nlp_options, V, model):
             vars_lb[var_type, name] = -cas.inf
             vars_ub[var_type, name] = cas.inf
 
+
+        # vars_lb['theta', 't_f', 0] = model.variable_bounds['theta']['t_f']['lb']/5
+        # vars_ub['theta', 't_f', 0] = model.variable_bounds['theta']['t_f']['ub']/5
+
         vars_lb['theta', 't_f', -1] = model.variable_bounds['theta']['t_f']['lb']
-        vars_ub['theta', 't_f', -1] = model.variable_bounds['theta']['t_f']['ub']*10
+        vars_ub['theta', 't_f', -1] = model.variable_bounds['theta']['t_f']['ub']*5
     return [vars_lb, vars_ub]
 
 def assign_phase_fix_bounds(nlp_options, model, vars_lb, vars_ub, coll_flag, var_type, kdx, ddx, name):

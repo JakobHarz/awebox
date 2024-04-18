@@ -38,6 +38,7 @@ import awebox.viz.tools as viz_tools
 import awebox.opts.options
 import awebox.mdl.architecture as archi
 import copy
+from awebox.logger.logger import Logger as awelogger
 import numpy as np
 
 class Simulation:
@@ -119,6 +120,8 @@ class Simulation:
         x0 = self.__initialize_sim(n_sim, x0, u_sim)
 
         for i in range(n_sim):
+
+            awelogger.logger.info(f"Simulation step {i+1}/{n_sim} ")
 
             # get (open/closed-loop) controls
             if self.__sim_type == 'closed_loop':

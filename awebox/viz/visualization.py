@@ -121,7 +121,7 @@ class Visualization(object):
                 self.__produce_plot(flag, fig_name, parametric_options['visualization']['cosmetics'], fig_num)
 
         if parametric_options['visualization']['cosmetics']['show_when_ready'] == True and sweep_toggle == False:
-            plt.show()
+            plt.show(block=True)
 
         return None
 
