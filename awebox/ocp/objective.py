@@ -511,10 +511,10 @@ def get_component_cost_dictionary(nlp_options, V, P, variables, parameters, xdot
             res_T = V['theta','t_f',1:-2] - V['theta','t_f',2:-1]
             sam_regularization_similar_durations += res_T.T@res_T
 
-        
-        component_costs['SAM_regularization'] = 5E-0*(1E-4*sam_regularization_first_deriv
+        N_SAM = nlp_options['N_SAM']
+        component_costs['SAM_regularization'] = nlp_options['SAM_Regularization']*(1E-4*sam_regularization_first_deriv
                                                       + 1*sam_regularizaion_third_deriv
-                                                      + 1*sam_regularization_similar_durations)
+                                                      + 10*sam_regularization_similar_durations)
 
 
     component_costs['objective'] = find_objective(component_costs, V)

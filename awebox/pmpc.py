@@ -93,7 +93,6 @@ class Pmpc(object):
         self.__index = 0
 
         # FOR DEBUG: Make stuff visible
-        self.index = self.__index
         self.compute_time_grids = self.__compute_time_grids
 
         # initialize
@@ -102,6 +101,15 @@ class Pmpc(object):
         awelogger.logger.info("Periodic MPC controller built.")
 
         return None
+
+
+    @property
+    def index(self):
+        return self.__index
+
+    @index.setter
+    def index(self, value:int):
+        self.__index = value
 
     def __build_trial(self):
         """ Build options, model, formulation and nlp of mpc trial.
@@ -326,7 +334,7 @@ class Pmpc(object):
                     weigths_states = self.trial.model.variables_dict['x'](1)
                     for key in self.trial.model.variables_dict['x'].keys():
                         if key in ['e','l','dl']:
-                            weigths_states[key] = 1E-4
+                            weigths_states[key] = 1E-6
                         elif key.startswith('dq') or key.startswith('q'):
                             weigths_states[key] = 1000.0
                         else:
@@ -574,7 +582,7 @@ class Pmpc(object):
         """
 
         # initial guess
-        self.__w0 = self.get_reference(*self.__compute_time_grids(0.0))
+        self.__w0 = self.get_reference(*self.__compute_time_grids(self.index*self.__ts))
 
         for name in self.__trial.model.variables_dict['theta'].keys():
             if name != 't_f':

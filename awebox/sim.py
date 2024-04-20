@@ -41,6 +41,9 @@ import copy
 from awebox.logger.logger import Logger as awelogger
 import numpy as np
 
+from awebox.tools.struct_operations import calculate_kdx_SAM_reconstruction
+
+
 class Simulation:
     def __init__(self, trial, sim_type, ts, options_seed):
         """ Constructor.
@@ -111,13 +114,13 @@ class Simulation:
 
         return None
 
-    def run(self, n_sim, x0 = None, u_sim = None):
+    def run(self, n_sim, x0 = None, u_sim = None, startTime:float = 0):
         """ Run simulation
         """
 
         # TODO: check consistency of initial conditions and give warning
-
-        x0 = self.__initialize_sim(n_sim, x0, u_sim)
+        self.mpc.index = startTime/self.__ts
+        x0 = self.__initialize_sim(n_sim, x0, u_sim, startTime=startTime)
 
         for i in range(n_sim):
 
@@ -141,13 +144,17 @@ class Simulation:
 
         return None
 
-    def __initialize_sim(self, n_sim, x0, u_sim):
+    def __initialize_sim(self, n_sim, x0, u_sim, startTime:float = 0):
         """ Initialize simulation.
         """
-
+        if self.trial.options['nlp']['flag_SAM_reconstruction']:
+            # change the index from the MPC grid to the NLP variables
+            startIndex,_ = calculate_kdx_SAM_reconstruction(self.trial.nlp.options, self.__trial.optimization.V_opt, startTime*self.__ts)
+        else:
+            startIndex = 0
         # take first state of optimization trial
         if x0 is None:
-            x0 = self.__trial.optimization.V_opt['x',0]
+            x0 = self.__trial.optimization.V_opt['x',startIndex]
 
         # set-up open loop controls
         if self.__sim_type == 'open_loop':
@@ -178,8 +185,8 @@ class Simulation:
 
         # time grids
         self.__visualization.plot_dict['time_grids'] = {}
-        self.__visualization.plot_dict['time_grids']['ip'] = np.linspace(0,n_sim*self.__ts, n_sim)
-        self.__visualization.plot_dict['time_grids']['u']  = np.linspace(0,n_sim*self.__ts, n_sim)
+        self.__visualization.plot_dict['time_grids']['ip'] = np.linspace(startTime,n_sim*self.__ts + startTime, n_sim)
+        self.__visualization.plot_dict['time_grids']['u']  = np.linspace(startTime,n_sim*self.__ts + startTime, n_sim)
 
         # create reference
         T_ref = self.__trial.visualization.plot_dict['time_grids']['ip'][-1]

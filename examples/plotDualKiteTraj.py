@@ -20,15 +20,19 @@ def latexify():
     matplotlib.rcParams.update(params_MPL_Tex)
 latexify()
 
+scaling_e = 873280
 
 # %% Load the data
 
+
+# basePath = '_export/varyN'
+basePath = '_export/singleExperiment'
 N = 20
 
 #check that the file with the results exists
-filename_SAM = f'_export/dualKiteLongTrajectory_N_{N}_SAM.csv'
-filename_REC = f'_export/dualKiteLongTrajectory_N_{N}_REC.csv'
-filename_MPC = f'_export/dualKiteLongTrajectory_N_{N}_MPC.csv'
+filename_SAM = f'{basePath}/dualKiteLongTrajectory_N_{N}_SAM.csv'
+filename_REC = f'{basePath}/dualKiteLongTrajectory_N_{N}_REC.csv'
+filename_MPC = f'{basePath}/dualKiteLongTrajectory_N_{N}_MPC.csv'
 
 assert os.path.exists(filename_SAM), f"File {filename_SAM} does not exist"
 assert os.path.exists(filename_REC), f"File {filename_REC} does not exist"
@@ -36,11 +40,15 @@ MPC_AVAILABLE = os.path.exists(filename_MPC)
 
 data_SAM = pandas.read_csv(filename_SAM)
 data_REC = pandas.read_csv(filename_REC)
+
+# scale 'e' state
+data_SAM['x_e_0'] = data_SAM['x_e_0']*scaling_e
+data_REC['x_e_0'] = data_REC['x_e_0']*scaling_e
+
 if MPC_AVAILABLE:
     data_MPC = pandas.read_csv(filename_MPC)
 
 # %% compute some stuff
-scaling_e = 873280
 power_SAM = (data_SAM['x_e_0'].iloc[-1] - data_SAM['x_e_0'].iloc[0])*scaling_e/data_SAM['t'].iloc[-1]
 power_REC = (data_REC['x_e_0'].iloc[-1] - data_REC['x_e_0'].iloc[0])*scaling_e/data_REC['t'].iloc[-1]
 if MPC_AVAILABLE: power_MPC = (data_MPC['x_e_0'].iloc[-1] - data_MPC['x_e_0'].iloc[0])/data_MPC['t'].iloc[-1]
@@ -48,6 +56,25 @@ if MPC_AVAILABLE: power_MPC = (data_MPC['x_e_0'].iloc[-1] - data_MPC['x_e_0'].il
 print(f"Power SAM: {power_SAM/1000:.2f} kW")
 print(f"Power REC: {power_REC/1000:.2f} kW")
 if MPC_AVAILABLE: print(f"Power MPC: {power_MPC/1000:.2f} kW")
+
+
+# %% Plot the states
+
+states_list = ['l_t']
+subplot_n_rows = len(states_list)
+subplot_n_cols = 1
+
+plt.figure(figsize=(10, 5))
+for index,state in enumerate(states_list):
+    plt.subplot(subplot_n_rows, subplot_n_cols, index+1)
+    plt.plot(data_SAM['t'], data_SAM[f'x_{state}_0'], '-', label=f'SAM {state}')
+    plt.plot(data_REC['t'], data_REC[f'x_{state}_0'], label=f'REC {state}')
+    if MPC_AVAILABLE: plt.plot(data_MPC['t'], data_MPC[f'x_{state}_0'], label=f'MPC {state}')
+
+    plt.xlabel('Time [s]')
+    plt.ylabel(f'{state}')
+    plt.legend()
+plt.show()
 
 # %% Create a 3D plot of the trajectory
 
@@ -118,5 +145,5 @@ generate_plot(axs[1,1],state_name='q31',PLOT_SAM=False, PLOT_REC=True, PLOT_MPC=
 
 
 plt.tight_layout()
-plt.savefig('SAM_REC_MPC_DualKites_N6.pdf')
+# plt.savefig('SAM_REC_MPC_DualKites_N6.pdf')
 plt.show()

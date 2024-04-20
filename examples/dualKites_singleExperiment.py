@@ -20,6 +20,7 @@ from awebox.ocp.collocation import Collocation
 from awebox.ocp.discretization_averageModel import construct_time_grids_SAM, construct_time_grids_SAM_reconstruction, \
     reconstruct_full_from_SAM
 from awebox.tools.struct_operations import calculate_SAM_regions
+from awebox.logger.logger import Logger as awelogger
 
 
 # %% Latexify the plots
@@ -60,14 +61,20 @@ options['nlp.useAverageModel'] = True
 options['nlp.cost.output_quadrature'] = False  # use enery as a state, works better with SAM
 options['nlp.SAM_MaInt_type'] = 'radau'
 options['nlp.N_SAM'] = 20 # the number of full cycles approximated
-options['nlp.d_SAM'] = 3 # the number of cycles actually computed
-options['nlp.SAM_ADAtype'] = 'BD' # the approximation scheme
+options['nlp.d_SAM'] = 4 # the number of cycles actually computed
+options['nlp.SAM_ADAtype'] = 'BD'  # the approximation scheme
+options['nlp.SAM_Regularization'] = 1.0  # regularization parameter
+
+
 options['user_options.trajectory.lift_mode.windings'] = options['nlp.d_SAM'] + 1
-n_k = 20 * options['user_options.trajectory.lift_mode.windings']
+n_k = 15 * options['user_options.trajectory.lift_mode.windings']
 options['nlp.n_k'] = n_k
-# options['nlp.phase_fix_reelout'] = (options['user_options.trajectory.lift_mode.windings'] - 1) / options[
-#     'user_options.trajectory.lift_mode.windings']
-options['nlp.phase_fix_reelout'] = 0.7
+
+# needed for correct initial tracking phase
+options['nlp.phase_fix_reelout'] = (options['user_options.trajectory.lift_mode.windings'] - 1) / options[
+    'user_options.trajectory.lift_mode.windings']
+options['solver.initialization.groundspeed'] = 30.0
+# options['nlp.phase_fix_reelout'] = 0.7
 
 if DUAL_KITES:
     options['model.system_bounds.theta.t_f'] = [5, 10 * options['nlp.N_SAM']]  # [s]
@@ -80,7 +87,7 @@ options['solver.linear_solver'] = 'ma57'
 # options['solver.max_iter'] = 0
 # options['solver.max_iter_hippo'] = 0
 
-options['visualization.cosmetics.interpolation.N'] = 1000  # high plotting resolution
+options['visualization.cosmetics.interpolation.N'] = 200  # high plotting resolution
 options['visualization.cosmetics.plot_bounds'] = True  # high plotting resolution
 
 options['solver.callback'] = True
@@ -127,7 +134,7 @@ time_grid_SAM_x = time_grid_SAM['x'](Vopt['theta', 't_f']).full().flatten()
 
 # %% put together the state trajectory for export
 import pandas
-def interpolate_trajectory(trial: awebox.Trial,V,N:int, Tend: float) -> pandas.DataFrame:
+def interpolate_trajectory(trial,V,N:int, Tend: float) -> pandas.DataFrame:
     assert trial.options['nlp']['flag_SAM_reconstruction']
     df = pandas.DataFrame()
     interpolator = trial.nlp.Collocation.build_interpolator(trial.nlp.options, V)
@@ -143,10 +150,27 @@ def interpolate_trajectory(trial: awebox.Trial,V,N:int, Tend: float) -> pandas.D
                 df[name] = values
     return df
 
-def interpolate_SAM_trajectory(trial: awebox.Trial,V,N:int) -> pandas.DataFrame:
+def interpolate_SAM_trajectory(trial,V,N:int) -> pandas.DataFrame:
     assert trial.options['nlp']['useAverageModel'] == True
     df = pandas.DataFrame()
     interpolator = trial.nlp.Collocation.build_interpolator(trial.nlp.options, V)
+
+    # fake a time struct
+    from casadi.tools import struct_symMX,entry
+    import casadi as ca
+    time_state_struct = struct_symMX([entry('t',shape=(1,1))])
+    tf_struct = struct_symMX([entry('t_f',shape=V['theta','t_f'].shape)])
+    V_time_struct = struct_symMX([entry('x',repeat=[trial.nlp.n_k],struct=time_state_struct),
+                                  entry('coll_var',repeat=[trial.nlp.n_k,trial.nlp.d],struct=struct_symMX([entry('x',struct=time_state_struct)])),
+                                  entry('theta',struct = tf_struct)])
+    # fill the struct with the time grid
+    V_time = V_time_struct(0)
+    V_time['x',:,'t',0] = (time_grid_SAM['x'](V['theta', 't_f'])).full().flatten().tolist()
+    for k in range(trial.nlp.n_k):
+        V_time['coll_var',k,:,'x','t',0] = (time_grid_SAM['coll'](V['theta', 't_f'])[k,:].T).full().flatten().tolist()
+    V_time['theta','t_f'] = V['theta','t_f']
+
+    interpolator_time  = trial.nlp.Collocation.build_interpolator(trial.nlp.options, V_time)
 
     # find the duration of the regions
     n_k = trial.nlp.options['n_k']
@@ -156,13 +180,13 @@ def interpolate_SAM_trajectory(trial: awebox.Trial,V,N:int) -> pandas.DataFrame:
     assert len(regions_indeces) == N_regions
     T_regions = (V['theta','t_f'] / n_k * regions_deltans).full().flatten()  # the duration of each discretization region
     T_end_SAM = np.sum(T_regions)
-
-    # construct a time grid that correctly represents the SAM regions in physical time
     t_grid_SAM = np.linspace(0, T_end_SAM, N) # in the AWEBOX time grid, not correct
-    # df['t_SAM'] = t_grid_SAM
     df['regionIndex'] = [np.argmax(t < np.cumsum(T_regions)+0.0001) for t in t_grid_SAM]
-    offsets = np.array([np.sum(T_regions[:df['regionIndex'][i]]) for i in range(N)])
-    df['t'] = t_grid_SAM + offsets
+
+
+    # fill time
+    values_time = interpolator_time(t_grid_SAM, 't', 0, 'x').full().flatten()
+    df['t'] = values_time
 
     for entry_type in ['x','u']:
         for entry_name in trial.model.variables_dict[entry_type].keys():
@@ -173,18 +197,32 @@ def interpolate_SAM_trajectory(trial: awebox.Trial,V,N:int) -> pandas.DataFrame:
                 name = entry_type + '_' + entry_name + '_' + str(index_dim)
                 df[name] = values
 
+
+    # interpolate the average trajectory
+    from awebox.ocp.discretization_averageModel import OthorgonalCollocation
+    interpolator_average_integrator = OthorgonalCollocation(ca.collocation_points(trial.nlp.options['d_SAM'],
+                                                                       trial.nlp.options['SAM_MaInt_type']))
+    interpolator_average = interpolator_average_integrator.getPolyEvalFunction(shape=trial.model.variables_dict['x'].cat.shape)
+    tau_average = np.linspace(0, 1, N)
+
+    X_average = interpolator_average.map(tau_average.size)(tau_average, V[''])
+
+    t_grid_average = np.linspace(T_regions[0], T_end_SAM - T_regions[-1], N) # in AWEBOX time grid!
+    df['t_average'] = interpolator_time(t_grid_average, 't', 0, 'x').full().flatten()
+
     return df
 
 
 trial.options['nlp']['flag_SAM_reconstruction'] = False
 trial.options['nlp']['useAverageModel'] = True
 df_SAM = interpolate_SAM_trajectory(trial,Vopt, 2000)
-df_SAM.to_csv(f'_export/dualKiteLongTrajectory_N_{options["nlp.N_SAM"]}_SAM.csv', index=False)
+df_SAM.to_csv(f'_export/singleExperiment/dualKiteLongTrajectory_N_{options["nlp.N_SAM"]}_SAM.csv', index=False)
+
 
 
 trial.options['nlp']['flag_SAM_reconstruction'] = True
 trial.options['nlp']['useAverageModel'] = False
 df_reconstruct = interpolate_trajectory(trial,V_reconstruct, 2000, float(time_grid_recon_eval['x'][-1]))
-df_reconstruct.to_csv(f'_export/dualKiteLongTrajectory_N_{options["nlp.N_SAM"]}_REC.csv', index=False)
+df_reconstruct.to_csv(f'_export/singleExperiment/dualKiteLongTrajectory_N_{options["nlp.N_SAM"]}_REC.csv', index=False)
 
-
+awelogger.logger.info('Exported trajectory data!')

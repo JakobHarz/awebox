@@ -288,6 +288,7 @@ def set_default_options(default_user_options, help_options):
         ('nlp', None, None, 'd_SAM', 1, ('number of microInts (cycles)', None), 't'),
         ('nlp', None, None, 'SAM_ADAtype', 1, ('type of the average dynamics approximation', ['FD','BD','CD']), 't'),
         ('nlp', None, None, 'SAM_MaInt_type', 1, ('type of macro integration coll', ['legendre','radau']), 't'),
+        ('nlp', None, None, 'SAM_Regularization', 1, ('regularization factor for SAM [float]',None), 't'),
 
         ('nlp',  None,               None, 'phase_fix_reelout',    0.7,                    ('time fraction of reel-out phase', None),'x'),
         ('nlp',  None,               None, 'pumping_range',        [None, None],           ('set predefined pumping range (only in comb. w. phase-fix)', None),'x'),

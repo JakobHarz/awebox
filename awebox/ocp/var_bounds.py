@@ -107,8 +107,8 @@ def get_scaled_variable_bounds(nlp_options, V, model):
             vars_ub[var_type, name] = cas.inf
 
 
-        # vars_lb['theta', 't_f', 0] = model.variable_bounds['theta']['t_f']['lb']/5
-        # vars_ub['theta', 't_f', 0] = model.variable_bounds['theta']['t_f']['ub']/5
+        vars_lb['theta', 't_f', 0] = model.variable_bounds['theta']['t_f']['lb']/5
+        vars_ub['theta', 't_f', 0] = model.variable_bounds['theta']['t_f']['ub']/5
 
         vars_lb['theta', 't_f', -1] = model.variable_bounds['theta']['t_f']['lb']
         vars_ub['theta', 't_f', -1] = model.variable_bounds['theta']['t_f']['ub']*5
