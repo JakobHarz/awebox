@@ -60,7 +60,7 @@ options['nlp.SAM_Regularization'] = 1.0  # regularization parameter
 
 
 options['user_options.trajectory.lift_mode.windings'] = options['nlp.d_SAM'] + 1
-n_k = 15 * options['user_options.trajectory.lift_mode.windings']
+n_k = 20 * options['user_options.trajectory.lift_mode.windings']
 options['nlp.n_k'] = n_k
 
 # needed for correct initial tracking phase
@@ -138,6 +138,8 @@ macroIntegrator = OthorgonalCollocation(np.array(ca.collocation_points(d_SAM, op
 t_f_opt = Vopt['theta', 't_f']
 
 # %% Reconstuct into large V structure of the FULL trajectory
+time_grid_SAM = construct_time_grids_SAM(trial.nlp.options)
+time_grid_SAM_x = time_grid_SAM['x'](Vopt['theta', 't_f']).full().flatten()
 
 V_reconstruct, time_grid_recon_eval, output_vals_reconstructed = reconstruct_full_from_SAM(trial,Vopt)
 
@@ -162,11 +164,11 @@ import copy
 T_opt = float(time_grid_recon_eval['x'][-1])
 
 # set-up closed-loop simulation
-T_mpc = 1.5 # seconds
+T_mpc = 2 # seconds
 N_mpc = 50 # MPC horizon
 
-T_sim = 5/50 # seconds
-# T_sim = T_opt # seconds
+# T_sim = 3 # seconds
+T_sim = T_opt # seconds
 ts = T_mpc/N_mpc # sampling time
 N_sim = int(T_sim/ts)  # closed-loop simulation steps
 #SAM reconstruct options
@@ -180,7 +182,7 @@ options['mpc.jit'] = False
 options['mpc.cost_type'] = 'tracking'
 options['mpc.expand'] = True
 options['mpc.linear_solver'] = 'ma27'
-options['mpc.max_iter'] = 300
+options['mpc.max_iter'] = 1500
 options['mpc.max_cpu_time'] = 2000
 options['mpc.N'] = N_mpc
 options['mpc.plot_flag'] = False
@@ -251,7 +253,7 @@ plt.figure(figsize=(10,10))
 
 # plot the reference
 # plt.plot(closed_loop_sim.visualization.plot_dict['time_grids']['ref']['x'].full(), closed_loop_sim.visualization.plot_dict['ref']['x']['q10'][0], label='reference_MPC')
-for index_state, name_state in enumerate(['q10','dq10']):
+for index_state, name_state in enumerate(['q21','dq21']):
     for index_dim in range(3):
         traj = interpolator(plot_t_grid, name_state, index_dim, 'x').full().flatten()
         plt.subplot(3, 2, index_state*3 + index_dim + 1)
@@ -335,7 +337,6 @@ plt.show()
 # %% put together the state trajectory for export
 import pandas
 
-
 def sim_to_df(sim):
     df = pandas.DataFrame()
 
@@ -351,21 +352,108 @@ def sim_to_df(sim):
                 df[name] = values
     return df
 
+def interpolate_trajectory(trial,V,N:int, Tend: float) -> pandas.DataFrame:
+    assert trial.options['nlp']['flag_SAM_reconstruction']
+    df = pandas.DataFrame()
+    interpolator = trial.nlp.Collocation.build_interpolator(trial.nlp.options, V)
+    t_grid = np.linspace(0, Tend, N)
+    df['t'] = t_grid
 
+    for entry_type in ['x','u']:
+        for entry_name in trial.model.variables_dict[entry_type].keys():
+            for index_dim in range(trial.model.variables_dict[entry_type][entry_name].shape[0]):
+                name = entry_type + '_' + entry_name + '_' + str(index_dim)
+                values = interpolator(t_grid, entry_name,index_dim, entry_type).full().squeeze()
+                # print(f'name:{name}, shape:{values.shape}',flush=True)
+                df[name] = values
+    return df
+
+def interpolate_SAM_trajectory(trial,V,N:int) -> pandas.DataFrame:
+    assert trial.options['nlp']['useAverageModel'] == True
+    df = pandas.DataFrame()
+    interpolator = trial.nlp.Collocation.build_interpolator(trial.nlp.options, V)
+
+    # fake a time struct
+    from casadi.tools import struct_symMX,entry
+    import casadi as ca
+    time_state_struct = struct_symMX([entry('t',shape=(1,1))])
+    tf_struct = struct_symMX([entry('t_f',shape=V['theta','t_f'].shape)])
+    V_time_struct = struct_symMX([entry('x',repeat=[trial.nlp.n_k],struct=time_state_struct),
+                                  entry('coll_var',repeat=[trial.nlp.n_k,trial.nlp.d],struct=struct_symMX([entry('x',struct=time_state_struct)])),
+                                  entry('theta',struct = tf_struct)])
+    # fill the struct with the time grid
+    V_time = V_time_struct(0)
+    V_time['x',:,'t',0] = (time_grid_SAM['x'](V['theta', 't_f'])).full().flatten().tolist()
+    for k in range(trial.nlp.n_k):
+        V_time['coll_var',k,:,'x','t',0] = (time_grid_SAM['coll'](V['theta', 't_f'])[k,:].T).full().flatten().tolist()
+    V_time['theta','t_f'] = V['theta','t_f']
+
+    interpolator_time  = trial.nlp.Collocation.build_interpolator(trial.nlp.options, V_time)
+
+    # find the duration of the regions
+    n_k = trial.nlp.options['n_k']
+    regions_indeces = calculate_SAM_regions(trial.nlp.options)
+    regions_deltans = np.array([region.__len__() for region in regions_indeces])
+    N_regions = trial.nlp.options['d_SAM'] + 2
+    assert len(regions_indeces) == N_regions
+    T_regions = (V['theta','t_f'] / n_k * regions_deltans).full().flatten()  # the duration of each discretization region
+    T_end_SAM = np.sum(T_regions)
+    t_grid_SAM = np.linspace(0, T_end_SAM, N) # in the AWEBOX time grid, not correct
+    df['regionIndex'] = [np.argmax(t < np.cumsum(T_regions)+0.0001) for t in t_grid_SAM]
+
+
+    # fill time
+    values_time = interpolator_time(t_grid_SAM, 't', 0, 'x').full().flatten()
+    df['t'] = values_time
+
+
+    for entry_type in ['x','u']:
+        for entry_name in trial.model.variables_dict[entry_type].keys():
+            for index_dim in range(trial.model.variables_dict[entry_type][entry_name].shape[0]):
+                # we evaluate on the AWEBox time grid, not the SAM time grid!
+                values = interpolator(t_grid_SAM, entry_name,index_dim, entry_type).full().flatten()
+
+                name = entry_type + '_' + entry_name + '_' + str(index_dim)
+                df[name] = values
+
+
+    # interpolate the average polynomials
+    from awebox.ocp.discretization_averageModel import OthorgonalCollocation
+    d_SAM = trial.nlp.options['d_SAM']
+    coll_points = np.array(ca.collocation_points(d_SAM,trial.nlp.options['SAM_MaInt_type']))
+    interpolator_average_integrator = OthorgonalCollocation(coll_points)
+    interpolator_average = interpolator_average_integrator.getPolyEvalFunction(shape=trial.model.variables_dict['x'].cat.shape, includeZero=True)
+    tau_average = np.linspace(0, 1, N)
+
+    # compute the average polynomials and fill the dataframe
+    X_average = interpolator_average.map(tau_average.size)(tau_average, V['x_macro',0], *[V['x_macro_coll',i] for i in range(d_SAM)])
+    X_average = trial.model.variables_dict['x'].repeated(X_average)
+    for entry_name in trial.model.variables_dict['x'].keys():
+        for index_dim in range(trial.model.variables_dict['x'][entry_name].shape[0]):
+            # we evaluate on the AWEBox time grid, not the SAM time grid!
+            values = ca.vertcat(*X_average[:,entry_name, index_dim]).full().flatten()
+
+            name = 'X' + '_' + entry_name + '_' + str(index_dim)
+            df[name] = values
+
+    # construct the time grid for the average polynomials
+    Tend = float(time_grid_SAM['x'](V['theta', 't_f'])[-1])
+    t_grid_average = np.linspace(T_regions[0], Tend - T_regions[-1], N) # in AWEBOX time grid!
+    df['t_average'] = t_grid_average
+
+    return df
 # export the simulation trajectory
 df_sim = sim_to_df(closed_loop_sim)
-df_sim.to_csv(f'_export/dualKiteLongTrajectory_N_{options["nlp.N_SAM"]}_MPC.csv', index=False)
+df_sim.to_csv(f'_export/MPC/dualKiteLongTrajectory_N_{options["nlp.N_SAM"]}_MPC.csv', index=False)
 
-# %% DEBUG: Eval reference on other grid
-interpolator = closed_loop_sim.mpc.interpolator
-t_grid_debug = np.linspace(0, T_opt, 3000)
-q21_ref = np.vstack([interpolator(t_grid_debug,'q21',0,'x').full().flatten(),
-                     interpolator(t_grid_debug,'q21',1,'x').full().flatten(),
-                     interpolator(t_grid_debug,'q21',2,'x').full().flatten()])
 
-plt.figure(figsize=(10, 10))
+trial.options['nlp']['flag_SAM_reconstruction'] = False
+trial.options['nlp']['useAverageModel'] = True
+df_SAM = interpolate_SAM_trajectory(trial,Vopt, 2000)
+df_SAM.to_csv(f'_export/MPC/dualKiteLongTrajectory_N_{options["nlp.N_SAM"]}_SAM.csv', index=False)
 
-# reset color cycle
-plt.gca().set_prop_cycle(None)
-plt.plot(t_grid_debug, q21_ref.T,'--')
-plt.show()
+
+trial.options['nlp']['flag_SAM_reconstruction'] = True
+trial.options['nlp']['useAverageModel'] = False
+df_reconstruct = interpolate_trajectory(trial,V_reconstruct, 2000, float(time_grid_recon_eval['x'][-1]))
+df_reconstruct.to_csv(f'_export/MPC/dualKiteLongTrajectory_N_{options["nlp.N_SAM"]}_REC.csv', index=False)

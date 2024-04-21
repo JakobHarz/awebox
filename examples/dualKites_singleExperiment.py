@@ -188,6 +188,7 @@ def interpolate_SAM_trajectory(trial,V,N:int) -> pandas.DataFrame:
     values_time = interpolator_time(t_grid_SAM, 't', 0, 'x').full().flatten()
     df['t'] = values_time
 
+
     for entry_type in ['x','u']:
         for entry_name in trial.model.variables_dict[entry_type].keys():
             for index_dim in range(trial.model.variables_dict[entry_type][entry_name].shape[0]):
@@ -198,31 +199,42 @@ def interpolate_SAM_trajectory(trial,V,N:int) -> pandas.DataFrame:
                 df[name] = values
 
 
-    # interpolate the average trajectory
+    # interpolate the average polynomials
     from awebox.ocp.discretization_averageModel import OthorgonalCollocation
-    interpolator_average_integrator = OthorgonalCollocation(ca.collocation_points(trial.nlp.options['d_SAM'],
-                                                                       trial.nlp.options['SAM_MaInt_type']))
-    interpolator_average = interpolator_average_integrator.getPolyEvalFunction(shape=trial.model.variables_dict['x'].cat.shape)
+    d_SAM = trial.nlp.options['d_SAM']
+    coll_points = np.array(ca.collocation_points(d_SAM,trial.nlp.options['SAM_MaInt_type']))
+    interpolator_average_integrator = OthorgonalCollocation(coll_points)
+    interpolator_average = interpolator_average_integrator.getPolyEvalFunction(shape=trial.model.variables_dict['x'].cat.shape, includeZero=True)
     tau_average = np.linspace(0, 1, N)
 
-    X_average = interpolator_average.map(tau_average.size)(tau_average, V[''])
+    # compute the average polynomials and fill the dataframe
+    X_average = interpolator_average.map(tau_average.size)(tau_average, V['x_macro',0], *[V['x_macro_coll',i] for i in range(d_SAM)])
+    X_average = trial.model.variables_dict['x'].repeated(X_average)
+    for entry_name in trial.model.variables_dict['x'].keys():
+        for index_dim in range(trial.model.variables_dict['x'][entry_name].shape[0]):
+            # we evaluate on the AWEBox time grid, not the SAM time grid!
+            values = ca.vertcat(*X_average[:,entry_name, index_dim]).full().flatten()
 
-    t_grid_average = np.linspace(T_regions[0], T_end_SAM - T_regions[-1], N) # in AWEBOX time grid!
-    df['t_average'] = interpolator_time(t_grid_average, 't', 0, 'x').full().flatten()
+            name = 'X' + '_' + entry_name + '_' + str(index_dim)
+            df[name] = values
+
+    # construct the time grid for the average polynomials
+    Tend = float(time_grid_SAM['x'](V['theta', 't_f'])[-1])
+    t_grid_average = np.linspace(T_regions[0], Tend - T_regions[-1], N) # in AWEBOX time grid!
+    df['t_average'] = t_grid_average
 
     return df
 
 
 trial.options['nlp']['flag_SAM_reconstruction'] = False
 trial.options['nlp']['useAverageModel'] = True
-df_SAM = interpolate_SAM_trajectory(trial,Vopt, 2000)
+df_SAM = interpolate_SAM_trajectory(trial,Vopt, 10000)
 df_SAM.to_csv(f'_export/singleExperiment/dualKiteLongTrajectory_N_{options["nlp.N_SAM"]}_SAM.csv', index=False)
-
 
 
 trial.options['nlp']['flag_SAM_reconstruction'] = True
 trial.options['nlp']['useAverageModel'] = False
-df_reconstruct = interpolate_trajectory(trial,V_reconstruct, 2000, float(time_grid_recon_eval['x'][-1]))
+df_reconstruct = interpolate_trajectory(trial,V_reconstruct, 10000, float(time_grid_recon_eval['x'][-1]))
 df_reconstruct.to_csv(f'_export/singleExperiment/dualKiteLongTrajectory_N_{options["nlp.N_SAM"]}_REC.csv', index=False)
 
 awelogger.logger.info('Exported trajectory data!')

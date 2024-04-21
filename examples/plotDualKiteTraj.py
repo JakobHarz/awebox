@@ -60,7 +60,7 @@ if MPC_AVAILABLE: print(f"Power MPC: {power_MPC/1000:.2f} kW")
 
 # %% Plot the states
 
-states_list = ['l_t']
+states_list = ['q21']
 subplot_n_rows = len(states_list)
 subplot_n_cols = 1
 
@@ -68,6 +68,7 @@ plt.figure(figsize=(10, 5))
 for index,state in enumerate(states_list):
     plt.subplot(subplot_n_rows, subplot_n_cols, index+1)
     plt.plot(data_SAM['t'], data_SAM[f'x_{state}_0'], '-', label=f'SAM {state}')
+    # plt.plot(data_SAM['t_average'], data_SAM[f'X_{state}_0'], '-', label=f'SAM_Average {state}')
     plt.plot(data_REC['t'], data_REC[f'x_{state}_0'], label=f'REC {state}')
     if MPC_AVAILABLE: plt.plot(data_MPC['t'], data_MPC[f'x_{state}_0'], label=f'MPC {state}')
 
@@ -90,8 +91,9 @@ def generate_plot(ax,state_name='q10',PLOT_SAM=False, PLOT_REC=False, PLOT_MPC=F
         # ax.plot3D(*[q21_rec[i,:] for i in range(3)], 'C1--', alpha=0.5)
         ax.plot3D(*[data_REC[f'x_{state_name}_{i}'] for i in range(3)], 'C1--', alpha=0.5, label='Reconstructed')
 
-    # plot the regions
     if PLOT_SAM:
+
+        # plot the regions
         N_regions = np.max(data_SAM['regionIndex']) + 1
         colors_regions = ['C0'] + [f'C{i}' for i in range(1, N_regions-1)] + ['C0']
         for i in range(N_regions):
@@ -109,6 +111,8 @@ def generate_plot(ax,state_name='q10',PLOT_SAM=False, PLOT_REC=False, PLOT_MPC=F
 
         ax.plot3D([],[],[],'-',color='C0',label='SAM')
 
+        # plot the average
+        # ax.plot3D(*[data_SAM[f'X_{state_name}_{i}'] for i in range(3)], 'C0-', alpha=1, label='Average')
 
     # set bounds for nice view
     q21_rec = np.array([data_REC[f'x_q21_{i}'] for i in range(3)])
