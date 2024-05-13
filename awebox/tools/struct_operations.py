@@ -38,6 +38,7 @@ from functools import reduce
 from awebox.logger.logger import Logger as awelogger
 import awebox.tools.performance_operations as perf_op
 from awebox.ocp.discretization_averageModel import construct_time_grids_SAM_reconstruction
+from awebox.ocp.var_struct import get_number_of_tf
 
 
 def subkeys(casadi_struct, key):
@@ -58,8 +59,10 @@ def subkeys(casadi_struct, key):
 
     return subkey_list
 
+
 def count_shooting_nodes(nlp_options):
     return nlp_options['n_k']
+
 
 def get_shooting_vars(nlp_options, V, P, Xdot, model):
 
@@ -71,6 +74,7 @@ def get_shooting_vars(nlp_options, V, P, Xdot, model):
         shooting_vars = cas.horzcat(shooting_vars, var_at_time)
 
     return shooting_vars
+
 
 def get_shooting_params(nlp_options, V, P, model):
 
@@ -161,6 +165,7 @@ def get_ms_params(nlp_options, V, P, Xdot, model):
 
     return ms_params
 
+
 def no_available_var_info(variables, var_type):
     message = var_type + ' variable not at expected location in variables. proceeding with zeros.'
     awelogger.logger.warning(message)
@@ -218,7 +223,6 @@ def get_controls_at_time(nlp_options, V, model_variables, kdx, ddx=None):
         return V[var_type, kdx]
 
 
-
 def get_derivs_at_time(nlp_options, V, Xdot, model_variables, kdx, ddx=None):
 
     var_type = 'xdot'
@@ -242,6 +246,7 @@ def get_derivs_at_time(nlp_options, V, Xdot, model_variables, kdx, ddx=None):
     else:
         return np.zeros(model_variables[var_type].shape)
         # return no_available_var_info(model_variables, var_type)
+
 
 def get_variables_at_time(nlp_options, V, Xdot, model_variables, kdx, ddx=None):
 
@@ -294,6 +299,7 @@ def get_variables_at_final_time(nlp_options, V, Xdot, model):
 
     return var_at_time
 
+
 def get_parameters_at_time(nlp_options, P, V, Xdot, model_variables, model_parameters, kdx=None, ddx=None):
     param_list = []
 
@@ -312,15 +318,18 @@ def get_parameters_at_time(nlp_options, P, V, Xdot, model_variables, model_param
 
     return param_at_time
 
+
 def get_var_ref_at_time(nlp_options, P, V, Xdot, model, kdx, ddx=None):
     V_from_P = V(P['p', 'ref'])
     var_at_time = get_variables_at_time(nlp_options, V_from_P, Xdot, model.variables, kdx, ddx)
     return var_at_time
 
+
 def get_var_ref_at_final_time(nlp_options, P, V, Xdot, model):
     V_from_P = V(P['p', 'ref'])
     var_at_time = get_variables_at_final_time(nlp_options, V_from_P, Xdot, model)
     return var_at_time
+
 
 def get_V_theta(V, nlp_numerics_options, k):
 
@@ -346,46 +355,53 @@ def get_V_theta(V, nlp_numerics_options, k):
 
 
 def calculate_SAM_regionIndex(nlp_options: dict, k: int) -> int:
-    """ Calculate the region index for the single reelout phase fix.
-    The integration horizon [0,nk] is divided into `nlp_options['user_options.trajectory.lift_mode.windings']` regions.
-    Where the last two are reseverd for the pre-reelinphase, the reel-in phase, the rest are for the individual micro-integrations of the SAM scheme.
+    """ Calculate the SAM region index of the interval index k.
+    The integration horizon [0,nk] is divided into `n_tf` regions.
+        The first ~70% are reserved for the individual micro-integrations of the SAM scheme,
+        The last ~30% is reserved for the the reel-in phase.
+    Note that this 70/30 relation is also hardcoded in the initialization of the t_fs
+
+    : param nlp_options: dictionary with the nlp options e.g option['nlp']
+    : param k: the integration interval index on the awebox grid
+
     """
 
-    n_windings = nlp_options['d_SAM'] + 1
-    n_regions = nlp_options['d_SAM'] + 2
-    n_k = nlp_options['n_k']
-    n_micros = nlp_options['d_SAM']
+    n_regions = get_number_of_tf(nlp_options)  # the number of time-scaling regions
+    n_k = nlp_options['n_k']  # the total number of integration intervals
+    n_micros = nlp_options['d_SAM']  # the number of micro-integrations
 
-    # 1. reserve 30% of the ingeration intervals for reelin & pre-reelout
+    # 1. reserve ~30% of the ingeration intervals for reelin & pre-reelout
     n_single_micro = round(n_k*0.7/n_micros)
-    n_RI_pRO_intervals = n_k - n_single_micro*n_micros
-    n_pRO_intervals = round(0.2*n_RI_pRO_intervals)
-    n_RI_intervals = n_RI_pRO_intervals - round(0.2*n_RI_pRO_intervals)
+    n_RO_intervals = n_single_micro*n_micros
+    n_RI_intervals = n_k - n_RO_intervals
 
-    # proportion of the integrations intervals per phase
-    delta_ns = np.array([n_pRO_intervals]  + [n_single_micro]*n_micros + [n_RI_intervals])
+    # the number integrations intervals per regions
+    delta_ns = np.array([n_single_micro]*n_micros + [n_RI_intervals])
     assert np.sum(delta_ns) == n_k, 'sum of the rounded delta_ns must be equal to n_k'
 
-    # note: the 70/30 relation is also hardcoded in the initialization of the t_fs
-
+    # 2. calculate the region index
     region_indx = np.sum(k >= np.cumsum(delta_ns))
     if region_indx > n_regions - 1:
+        # last interval? -> return last region
         region_indx = n_regions - 1
 
-    return region_indx
+    return int(region_indx)
+
 
 def calculate_SAM_regions(nlp_options: dict) -> list:
     """ Returs a list of lists, where each list contains the indices of the k's that belong to the same SAM region.
         For example, nk= 10, d_SAM=1, and thus 3 regions, the output will be
         [[0,1,2],[4,5,6],[7,8,9,10]]
+
+        :param nlp_options: dictionary with the nlp options e.g option['nlp']
+        :return: list of lists with of indices
     """
     n_k = nlp_options['n_k']
-    n_tf = nlp_options['d_SAM'] + 2
-    return_list = [[] for _ in range(n_tf)] # generate a list with n_tf empty lists
+    n_tf = get_number_of_tf(nlp_options)
+    return_list = [[] for _ in range(n_tf)]  # generate a list with n_tf empty lists
     for k in range(n_k):
         return_list[calculate_SAM_regionIndex(nlp_options, k)].append(k)
     return return_list
-
 
 
 def calculate_tf_index(nlp_options, k):
@@ -454,7 +470,7 @@ def calculate_kdx_SAM(params, V, t) -> tuple:
 
     return kdx, tau
 
-_timegrid_reconstruct_save = None
+_timegrid_reconstruct_save = None # THIS IS BAAAAAD, but so much faster
 def calculate_kdx_SAM_reconstruction(params, V, t) -> tuple:
     """ Calculate the interval index kdx and the remaining relative interval tau duration of the interval in which the time t is located.
     This is valid only IF THE VARIABLES V are reconstructed versions of the SAM variables.

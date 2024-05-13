@@ -157,24 +157,22 @@ def set_final_time(init_options, V_init, model, formulation, ntp_dict):
     # if use_phase_fixing:
     #     tf_guess = cas.vertcat(*[tf_guess]*V_init['theta', 't_f'].shape[0])
 
-    use_average_model = V_init['theta', 't_f'].shape[0] >= 3
+    use_average_model = V_init['theta', 't_f'].shape[0] >= 2
     if use_average_model:
-        Nwindings = V_init['theta', 't_f'].shape[0] - 1
+        Nwindings = V_init['theta', 't_f'].shape[0]
         dSAM = Nwindings - 1
         Tsingle = tf_guess/Nwindings
         tf_guess_vector = cas.DM.zeros(V_init['theta', 't_f'].shape)
 
         tf_cycle = Tsingle*dSAM/(0.7)
-        tf_pRO_RI = Tsingle/(0.3)
+        tf_RI = Tsingle/(0.3)
 
-        tf_guess_vector[0] = tf_pRO_RI
-        tf_guess_vector[1:-1] = tf_cycle
-        tf_guess_vector[-1] = tf_pRO_RI
+        tf_guess_vector[0:-1] = tf_cycle
+        tf_guess_vector[-1] = tf_RI
 
-        tf_guess = tf_guess_vector # this is stupid
+        tf_guess = tf_guess_vector  # this is stupid
 
     V_init['theta', 't_f'] = tf_guess
-
 
     return V_init
 

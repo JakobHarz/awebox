@@ -56,9 +56,6 @@ class Trial(object):
 
     def __init__(self, seed, name = 'trial'):
 
-
-
-
         # check if constructed with solved trial dict
         if 'solution_dict' in seed.keys():
 
@@ -74,10 +71,6 @@ class Trial(object):
             self.__options_seed   = seed
             self.__options        = opts.Options()
             self.__options.fill_in_seed(self.__options_seed)
-
-            # check if we should build the nlp using the average model
-            use_average_model = self.__options['nlp']['useAverageModel']
-
             self.__model          = model.Model()
             self.__formulation    = formulation.Formulation()
             self.__nlp            = nlp.NLP()
@@ -164,7 +157,9 @@ class Trial(object):
         if self.__optimization.solve_succeeded:
             awelogger.logger.info('Trial "%s" optimized.', self.__name)
             awelogger.logger.info('Trial optimization time: %s',print_op.print_single_timing(self.__timings['optimization']))
+
         else:
+
             awelogger.logger.info('WARNING: Optimization of Trial (%s) failed.', self.__name)
 
         if (not intermediate_solve and recalibrate_viz):

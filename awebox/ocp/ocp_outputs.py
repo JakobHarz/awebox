@@ -119,11 +119,11 @@ def find_time_period(nlp_numerics_options, V):
             assert d_SAM == b_macro.size
 
             time_period = 0
-            time_period += delta_ns[0]/ nlp_numerics_options['n_k'] *V['theta', 't_f',0] # t_pRO
+            # time_period += delta_ns[0]/ nlp_numerics_options['n_k'] *V['theta', 't_f',0] # t_pRO
             time_period += delta_ns[-1]/ nlp_numerics_options['n_k'] *V['theta', 't_f',-1] # t_RI
 
             for i in range(nlp_numerics_options['d_SAM']):
-                time_period += delta_ns[i+1]/ nlp_numerics_options['n_k'] * V['theta', 't_f', i+1] * b_macro[i]*N_SAM
+                time_period += delta_ns[i]/ nlp_numerics_options['n_k'] * V['theta', 't_f', i] * b_macro[i]*N_SAM
         else:
             # average over collocation nodes
             time_period = (time_period_zeroth + time_period_first)

@@ -55,16 +55,8 @@ def get_constraints(nlp_options, V, P, Xdot, model, dae, formulation, Integral_c
     ocp_cstr_list = ocp_constraint.OcpConstraintList()
     ocp_cstr_entry_list = []
 
-
-    # SAM Modification: Initial Variable is replaced by X0_macro
-    # if nlp_options['useAverageModel']:
-    #     var_initial  = model.variables(cas.vertcat(V['x_micro_minus',0],
-    #                                                cas.inf*cas.DM.ones((37,1))) # nasty, but the other variables are not required for anything
-    #                                    )
-    # else:
-    var_initial = struct_op.get_variables_at_time(nlp_options, V, Xdot, model.variables, 0)
-
     # add initial constraints
+    var_initial = struct_op.get_variables_at_time(nlp_options, V, Xdot, model.variables, 0)
     var_ref_initial = struct_op.get_var_ref_at_time(nlp_options, P, V, Xdot, model, 0)
     init_cstr = operation.get_initial_constraints(nlp_options, var_initial, var_ref_initial, model, formulation.xi_dict)
     ocp_cstr_list.append(init_cstr)

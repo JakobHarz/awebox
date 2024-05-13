@@ -320,7 +320,10 @@ class Model(object):
         awelogger.logger.warning('Cannot set wind_options object.')
 
     @property
-    def variables_dict(self):
+    def variables_dict(self) -> dict:
+        """ A dictionary that contains the structures (symsStruct) for the state ['x'],
+        the state derivatives ['xdot'], the control ['u'], the algebraic variables ['z'], and the parameters ['theta']
+        """
         return self.__variables_dict
 
     @variables_dict.setter

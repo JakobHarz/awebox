@@ -169,7 +169,7 @@ class Collocation(object):
                     zoh_val = V['u',kdx, name, dim]
                     vals = cas.vertcat(vals, zoh_val)
                 elif var_type in ['int_out']:
-                    poly_vars = cas.vertcat(integral_outputs['int_out',kdx, name, dim], *integral_outputs['coll_int_out',kdx, :, name, dim])
+                    poly_vars = cas.vertcat(integral_outputs['int_out',kdx, name, dim], *integral_outputs['coll_int_out', kdx, :, name, dim])
                     vals = cas.vertcat(vals, cas.mtimes(poly_vars.T, self.__coeff_fun(tau)))
 
             return vals

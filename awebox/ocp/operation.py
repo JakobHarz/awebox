@@ -205,8 +205,9 @@ def make_terminal_point_constraint(terminal_variables, ref_variables, model):
 
     return cas.vertcat(*terminal_point_constr)
 
-def get_periodic_constraints(options, initial_model_variables, terminal_model_variables):
-    cstr_list = ocp_constraint.OcpConstraintList()
+
+def get_periodic_constraints(options, initial_model_variables, terminal_model_variables) -> ocp_constraint.OcpConstraintList:
+    cstr_list = ocp_constraint.OcpConstraintList() # new empty list?a
 
     periodic, _, _, _, _, _, _ = get_operation_conditions(options)
 

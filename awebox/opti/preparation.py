@@ -27,7 +27,6 @@
 python-3.5 / casadi-3.4.5
 - authors: rachel leuthold, thilo bronnenmeyer, alu-fr 2018
 '''
-import numpy as np
 
 from .initialization_dir import modular as initialization_modular, initialization
 
@@ -272,8 +271,7 @@ def generate_solvers(awebox_callback, model, nlp, formulation, options):
         final_opts['ipopt.mu_init'] = options['mu_hippo']
         final_opts['ipopt.warm_start_init_point'] = 'yes'
 
-    # if options['callback']:
-    if False:
+    if options['callback']:
         initial_opts['iteration_callback'] = awebox_callback
         initial_opts['iteration_callback_step'] = options['callback_step']
 
@@ -288,39 +286,9 @@ def generate_solvers(awebox_callback, model, nlp, formulation, options):
         32.0
 
     if options['nlp_solver'] == 'ipopt':
-
-        # import os
-        # import json
-        # import collections
-        # # check if the solvers have been built before
-        #
-        # # remove the key 'initialization.sys_params_num.aero.CX' from the options dictionary since it is a DM and cant be serialized
-        # options_withoutDM = options.copy()
-        #
-        # if os.path.exists('buildSolvers.json'):
-        #     with open('buildSolvers.json', 'r') as f:
-        #         solvers_dict = json.load(f)
-        #     awelogger.logger.info('Solvers have been built before, loading from json file...')
-        #     initial_solver = cas.Function.deserialize(solvers_dict['initial'])
-        #     middle_solver = cas.Function.deserialize(solvers_dict['middle'])
-        #     final_solver = cas.Function.deserialize(solvers_dict['final'])
-        #
-        # else:
-            initial_solver = cas.nlpsol('solver', 'ipopt', nlp.get_nlp(), initial_opts)
-            middle_solver = cas.nlpsol('solver', 'ipopt', nlp.get_nlp(), middle_opts)
-            final_solver = cas.nlpsol('solver', 'ipopt', nlp.get_nlp(), final_opts)
-
-            # awelogger.logger.info('Solvers built, saving to json file...')
-            # # store the solvers
-            # solvers_dict = {'initial': initial_solver.serialize(),
-            #                 'middle': middle_solver.serialize(),
-            #                 'final': final_solver.serialize()}
-            #
-            # # dump to json file
-            # with open('buildSolvers.json', 'w') as f:
-            #     json.dump(solvers_dict, f)
-            #
-
+        initial_solver = cas.nlpsol('solver', 'ipopt', nlp.get_nlp(), initial_opts)
+        middle_solver = cas.nlpsol('solver', 'ipopt', nlp.get_nlp(), middle_opts)
+        final_solver = cas.nlpsol('solver', 'ipopt', nlp.get_nlp(), final_opts)
     elif options['nlp_solver'] == 'worhp':
         initial_solver = cas.nlpsol('solver', 'worhp', nlp.get_nlp(), final_opts)
         middle_solver = initial_solver

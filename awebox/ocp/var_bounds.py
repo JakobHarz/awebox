@@ -106,10 +106,6 @@ def get_scaled_variable_bounds(nlp_options, V, model):
             vars_lb[var_type, name] = -cas.inf
             vars_ub[var_type, name] = cas.inf
 
-
-        vars_lb['theta', 't_f', 0] = model.variable_bounds['theta']['t_f']['lb']/5
-        vars_ub['theta', 't_f', 0] = model.variable_bounds['theta']['t_f']['ub']/5
-
         vars_lb['theta', 't_f', -1] = model.variable_bounds['theta']['t_f']['lb']
         vars_ub['theta', 't_f', -1] = model.variable_bounds['theta']['t_f']['ub']*5
     return [vars_lb, vars_ub]
@@ -123,15 +119,21 @@ def assign_phase_fix_bounds(nlp_options, model, vars_lb, vars_ub, coll_flag, var
             vars_ub[var_type, 0, name, 1] = 0.0
 
     # lift-mode phase fixing
-    switch_kdx = round(nlp_options['n_k'] * nlp_options['phase_fix_reelout'])
-    in_reelout_phase = (kdx < switch_kdx)
+    if nlp_options['useAverageModel']:
+        # get the region indices
+        SAM_regions = struct_op.calculate_SAM_regions(nlp_options)
+        # in reelin phase?
+        offset = 1
+        in_reelout_phase = not (kdx in SAM_regions[-1][offset:-offset])
+    else:
+        switch_kdx = round(nlp_options['n_k'] * nlp_options['phase_fix_reelout'])
+        in_reelout_phase = (kdx < switch_kdx)
 
     n_k = nlp_options['n_k']
 
     periodic, _, _, _, _, _, _ = operation.get_operation_conditions(nlp_options)
     if nlp_options['system_type'] == 'lift_mode':
         if name == 'dl_t':
-
             if nlp_options['phase_fix'] == 'single_reelout':
 
                 # we cannot constraint ALL THREE OF kdx == 0 and kdx == n_k and periodicity.
@@ -139,10 +141,15 @@ def assign_phase_fix_bounds(nlp_options, model, vars_lb, vars_ub, coll_flag, var
                 if periodic:
                     condition = (condition and (kdx > 0))
 
+                # vars_lb[var_type, kdx, name] = model.variable_bounds[var_type][name]['lb']
+                # vars_ub[var_type, kdx, name] = model.variable_bounds[var_type][name]['ub']
+
                 if condition:
                     if kdx == (n_k):
-                        vars_lb[var_type, kdx, name] = 0.0
-                        vars_ub[var_type, kdx, name] = 0.0
+                        # vars_lb[var_type, kdx, name] = 0.0
+                        # vars_ub[var_type, kdx, name] = 0.0
+                        vars_lb[var_type, kdx, name] = model.variable_bounds[var_type][name]['lb']
+                        vars_ub[var_type, kdx, name] = model.variable_bounds[var_type][name]['ub']
 
                     elif in_reelout_phase:
                         vars_lb[var_type, kdx, name] = 0.0

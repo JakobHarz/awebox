@@ -467,7 +467,7 @@ def get_component_cost_dictionary(nlp_options, V, P, variables, parameters, xdot
 
     if nlp_options['useAverageModel']:
         # add SAM cost: average dynamics should be minimized
-        weights_state = model.variables_dict['x'](0)
+        weights_state = model.variables_dict['x'](1E-8)
 
         # penalize changes is the variables that should not change much
         # weights_dicts = {'q': [0,0.001, 0.001]}
@@ -483,8 +483,6 @@ def get_component_cost_dictionary(nlp_options, V, P, variables, parameters, xdot
         for key in weights_state.keys():
             if key[:-2] in weights_dicts.keys():
                 weights_state[key] = weights_dicts[key[:-2]]
-            else:
-                weights_state[key] = 0
         W_x = cas.diag(weights_state.cat)
 
         from awebox.ocp.discretization_averageModel import OthorgonalCollocation

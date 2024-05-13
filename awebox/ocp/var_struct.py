@@ -22,21 +22,28 @@
 #    Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
 #
 #
-'''
+"""
 keep the variable construction separate,
 so that non-sequential code can be used non-sequentially
 python-3.5 / casadi-3.4.5
 - authors: elena malz 2016
-           rachel leuthold, jochem de schutter alu-fr 2017-20
-'''
+           rachel leuthold, jochem de schutter alu-fr 2017-20, jakob harzer 2024
+"""
 
 import casadi.tools as cas
-import awebox.tools.struct_operations as struct_op
-import awebox.ocp.collocation as collocation
-import awebox.tools.print_operations as print_op
+from awebox.mdl.model import Model
+from awebox.ocp.collocation import Collocation
 
 
-def setup_nlp_v(nlp_options, model, Collocation=None):
+def setup_nlp_v(nlp_options: dict, model: Model, collocation: Collocation = None) -> cas.struct_symMX:
+    """
+    Generate the variable structure for the NLP.
+
+    :param nlp_options: dictionary of the nlp options e.g. `options['nlp']`
+    :param model: system model
+    :param collocation:
+    :return: a casadi struct containing all variables for the NLP
+    """
 
     # extract necessary inputs
     variables_dict = model.variables_dict
@@ -44,70 +51,93 @@ def setup_nlp_v(nlp_options, model, Collocation=None):
     multiple_shooting = (nlp_options['discretization'] == 'multiple_shooting')
     direct_collocation = (nlp_options['discretization'] == 'direct_collocation')
 
-    # check if phase fix and adjust theta accordingly
-    if nlp_options['phase_fix'] == 'single_reelout':
-        theta = get_phase_fix_theta(variables_dict)
-    else:
-        theta = variables_dict['theta']
-
     # define interval struct entries for controls and states
     entry_tuple = (
-        cas.entry('x', repeat = [nk+1], struct = variables_dict['x']),
-        )
+        cas.entry('x', repeat=[nk + 1], struct=variables_dict['x']),
+    )
 
     # add additional variables according to provided options
     if multiple_shooting or nlp_options['collocation']['u_param'] == 'zoh':
         entry_tuple += (
-            cas.entry('u',  repeat = [nk],   struct = variables_dict['u']),
+            cas.entry('u', repeat=[nk], struct=variables_dict['u']),
         )
 
         # add state derivative variables at interval
         entry_tuple += (
-            cas.entry('xdot', repeat = [nk], struct= variables_dict['xdot']),
+            cas.entry('xdot', repeat=[nk], struct=variables_dict['xdot']),
         )
 
         # add algebraic variables at shooting nodes for constraint evaluation
-        entry_tuple += (cas.entry('z', repeat = [nk],   struct= variables_dict['z']),)
+        entry_tuple += (cas.entry('z', repeat=[nk], struct=variables_dict['z']),)
 
     if direct_collocation:
 
         # add collocation node variables
-        if Collocation is None:
+        if collocation is None:
             message = 'a None instance of Collocation was passed to the NLP variable structure generator'
             raise Exception(message)
 
-        d = nlp_options['collocation']['d'] # interpolating polynomial order
-        coll_var = Collocation.get_collocation_variables_struct(variables_dict, nlp_options['collocation']['u_param'])
-        entry_tuple += (cas.entry('coll_var', struct = coll_var, repeat= [nk,d]),)
+        d = nlp_options['collocation']['d']  # interpolating polynomial order
+        coll_var = collocation.get_collocation_variables_struct(variables_dict, nlp_options['collocation']['u_param'])
+        entry_tuple += (cas.entry('coll_var', struct=coll_var, repeat=[nk, d]),)
 
     # add global entries
+    theta = construct_theta(nlp_options, variables_dict)  # build the parameter struct (t_f, ...)
+
     # when the global variables are before the discretized variables, it leads to prettier kkt matrix spy plots
     entry_list = [
-        cas.entry('theta', struct = theta),
-        cas.entry('phi',   struct = model.parameters_dict['phi']),
-        cas.entry('xi',    struct = get_xi_struct()),
+        cas.entry('theta', struct=theta),
+        cas.entry('phi', struct=model.parameters_dict['phi']),
+        cas.entry('xi', struct=get_xi_struct()),
         entry_tuple
     ]
 
+    # add SAM variables if necessary
+    if nlp_options['useAverageModel']:
+        entry_list += [cas.entry('sam_misc', struct=cas.struct_symMX([cas.entry('beta')])),
+                       cas.entry('x_macro', struct=model.variables_dict['x'], repeat=[2]),
+                       cas.entry('x_macro_coll', struct=model.variables_dict['x'], repeat=[nlp_options['d_SAM']]),
+                       cas.entry('v_macro_coll', struct=model.variables_dict['x'], repeat=[nlp_options['d_SAM']]),
+                       cas.entry('x_micro_minus', struct=model.variables_dict['x'], repeat=[nlp_options['d_SAM']]),
+                       cas.entry('x_micro_plus', struct=model.variables_dict['x'], repeat=[nlp_options['d_SAM']]),
+                       ]
+
     # generate structure
-    V = cas.struct_symMX(entry_list)
+    return cas.struct_symMX(entry_list)
 
-    # print_op.print_variable_info('NLP', V)
 
-    return V
+def construct_theta(nlp_options: dict, variables_dict: dict) -> cas.struct_symSX:
+    """ Build the parameter struct for the NLP. The contents depend on the discretization method,
+    especially the time-scaling parameter 't_f'.
 
-def get_phase_fix_theta(variables_dict):
+    :param nlp_options: dictionary of the nlp options e.g. `options['nlp']`
+    :param variables_dict: dictionary of the system variables e.g. `model.variables_dict`
+    :return: a casadi struct containing the parameter variables for the NLP ('t_f', ....)
+    """
 
     entry_list = []
     for name in list(variables_dict['theta'].keys()):
         if name == 't_f':
-            entry_list.append(cas.entry('t_f', shape = (2,1)))
+            # timescaling parameters? Their number depends on the discretization
+            entry_list.append(cas.entry('t_f', shape=(get_number_of_tf(nlp_options), 1)))
+
         else:
-            entry_list.append(cas.entry(name, shape = variables_dict['theta'][name].shape))
+            # other parameters? just copy
+            entry_list.append(cas.entry(name, shape=variables_dict['theta'][name].shape))
 
-    theta = cas.struct_symSX(entry_list)
+    return cas.struct_symSX(entry_list)
 
-    return theta
+
+def get_number_of_tf(nlp_options) -> int:
+    """ Determine the number of time-scaling parameters in the NLP. This depends on the discretization method."""
+    if nlp_options['useAverageModel']:
+        n_tf = nlp_options['d_SAM'] + 1  # d_SAM microintegrations regions in reel-out + reel-in regions
+    elif nlp_options['phase_fix'] == 'single_reelout':
+        n_tf = 2  # in this case, the reel-out and reel-in phases are treated separately
+    else:
+        n_tf = 1  # no seperation of reel-out and reel-in phases
+    return n_tf
+
 
 def get_xi_struct():
     xi = cas.struct_symMX([(cas.entry('xi_0'), cas.entry('xi_f'))])

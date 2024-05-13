@@ -38,12 +38,15 @@ import awebox.ocp.constraints as constraints
 import awebox.ocp.collocation as coll_module
 import awebox.ocp.multiple_shooting as ms_module
 import awebox.ocp.ocp_outputs as ocp_outputs
-import awebox.ocp.var_struct_averageModel as var_struct
+import awebox.ocp.var_struct as var_struct
 
 import awebox.tools.struct_operations as struct_op
 import awebox.tools.print_operations as print_op
 import awebox.tools.constraint_operations as cstr_op
-from awebox.ocp import ocp_constraint
+from awebox.ocp import ocp_constraint, operation
+from awebox.ocp.discretization import setup_nlp_p, setup_integral_output_structure
+from awebox.ocp.operation import make_periodicity_equality
+
 
 # todo: move this somewhere or replace with existing collocation functions
 class OthorgonalCollocation:
@@ -203,18 +206,17 @@ def reconstruct_full_from_SAM(trial,Vopt: cas.struct):
     N_SAM = options['nlp']['N_SAM']
     macroIntegrator = OthorgonalCollocation(np.array(ca.collocation_points(d_SAM, options['nlp']['SAM_MaInt_type'])))
     regions_indeces = struct_op.calculate_SAM_regions(trial.nlp.options)
-    strobo_indeces = [region_indeces[0] for region_indeces in regions_indeces[1:]]
 
     t_f_opt = Vopt['theta', 't_f']
-    assert t_f_opt.shape[0] == d_SAM + 2
+    assert t_f_opt.shape[0] == d_SAM + 1
 
     solution_dict = trial.solution_dict
 
     from casadi.tools import struct_symMX, entry
-    N_regions = d_SAM + 2
+    N_regions = d_SAM + 1
     assert len(regions_indeces) == N_regions
     regions_deltans = np.array([region.__len__() for region in regions_indeces])
-    n_k_total = regions_deltans[0] + regions_deltans[-1] + trial.options['nlp']['N_SAM'] * regions_deltans[1]
+    n_k_total = regions_deltans[-1] + trial.options['nlp']['N_SAM'] * regions_deltans[0]
     d_micro = trial.options['nlp']['collocation']['d']
 
     # create empty structure
@@ -230,7 +232,7 @@ def reconstruct_full_from_SAM(trial,Vopt: cas.struct):
     entry_list_thetas = []
     for name in list(model.variables_dict['theta'].keys()):
         if name == 't_f':
-            n_tf = trial.options['nlp']['d_SAM'] + 2  # the number of timescaling parameters
+            n_tf = trial.options['nlp']['d_SAM'] + 1  # the number of timescaling parameters
             entry_list_thetas.append(entry('t_f', shape=(n_tf, 1)))
         else:
             entry_list_thetas.append(entry(name, shape=model.variables_dict['theta'][name].shape))
@@ -244,7 +246,7 @@ def reconstruct_full_from_SAM(trial,Vopt: cas.struct):
     zs_micro = []
     us_micro = []
     zs_micro_coll = []
-    for i in range(1, d_SAM + 1):
+    for i in range(0, d_SAM):
         # interpolate the micro-collocation polynomial
         z_micro = []
         u_micro = []
@@ -268,19 +270,11 @@ def reconstruct_full_from_SAM(trial,Vopt: cas.struct):
     strobos_eval = np.arange(N_SAM) + {'BD': 1, 'CD': 0.5, 'FD': 0.0}[options['nlp']['SAM_ADAtype']]
     strobos_eval = strobos_eval * 1 / N_SAM
 
-    # 1. fill pre-reelout values
     j = 0
 
-    for j_local in regions_indeces[0]:
-        V_reconstruct['x', j] = Vopt['x', j_local]
-        V_reconstruct['u', j] = Vopt['u', j_local]
-        V_reconstruct['z', j] = Vopt['z', j_local]
-        V_reconstruct['coll_var', j] = Vopt['coll_var', j_local]
-        j = j + 1
-
-    # 2. fill reelout values
+    # 1. fill reelout values
     for n in range(N_SAM):
-        n_micro_ints_per_cycle = regions_deltans[1]  # these are the same for every cycle
+        n_micro_ints_per_cycle = regions_deltans[0]  # these are the same for every cycle
         for j_local in range(n_micro_ints_per_cycle):
             # evaluate the reconstruction polynomials
             V_reconstruct['x', j] = z_interpol_f(strobos_eval[n], *[zs_micro[k][j_local] for k in range(d_SAM)])
@@ -327,6 +321,7 @@ def reconstruct_full_from_SAM(trial,Vopt: cas.struct):
 
     return V_reconstruct, time_grid_recon_eval, output_vals_reconstructed
 
+
 def construct_time_grids(nlp_options):
 
     assert nlp_options['phase_fix'] == 'single_reelout'
@@ -349,12 +344,11 @@ def construct_time_grids(nlp_options):
 
     # make symbolic time constants
     if nlp_options['useAverageModel']:
-        tfsym = cas.SX.sym('tfsym', nlp_options['d_SAM'] + 2)
-        regions_indexes = struct_op.calculate_SAM_regions(nlp_options)
+        tfsym = cas.SX.sym('tfsym', var_struct.get_number_of_tf(nlp_options))
+        # regions_indexes = struct_op.calculate_SAM_regions(nlp_options)
     elif nlp_options['phase_fix'] == 'single_reelout':
         tfsym = cas.SX.sym('tfsym',2)
         nk_reelout = round(nk * nlp_options['phase_fix_reelout'])
-
         t_switch = tfsym[0] * nk_reelout / nk
         time_grids['t_switch'] = cas.Function('tgrid_tswitch', [tfsym], [t_switch])
 
@@ -407,6 +401,7 @@ def construct_time_grids(nlp_options):
 
     return time_grids
 
+
 def construct_time_grids_SAM_reconstruction(nlp_options) -> dict:
     # assert nlp_options['useAverageModel']
     assert nlp_options['discretization'] == 'direct_collocation'
@@ -417,7 +412,7 @@ def construct_time_grids_SAM_reconstruction(nlp_options) -> dict:
     N_SAM = nlp_options['N_SAM']
     scheme_micro = nlp_options['collocation']['scheme']
     tau_root_micro = ca.vertcat(ca.collocation_points(d, scheme_micro))
-    N_regions = d_SAM + 2
+    N_regions = d_SAM + 1
     regions_indeces = struct_op.calculate_SAM_regions(nlp_options)
     regions_deltans = np.array([region.__len__() for region in regions_indeces])
     assert len(regions_indeces) == N_regions
@@ -432,33 +427,16 @@ def construct_time_grids_SAM_reconstruction(nlp_options) -> dict:
     tcoll = []
     t_local = 0
 
-    # 1. fill pre-reelout values
-    for j_local in regions_indeces[0]:
-        # speed of time of the specific interval
-        duration_interval = T_regions[0] / regions_deltans[0]
-
-        tx.append(t_local)
-        tu.append(t_local)
-        tcoll.append(t_local + tau_root_micro * duration_interval)
-        txcoll.append(t_local)
-        txcoll.append(t_local + tau_root_micro * duration_interval)
-
-        # update running variables
-        t_local = t_local + duration_interval
-
-    # compute the duration of each index region in of the variables
-
-
     # function to evaluate the reconstructed time
     # quadrature over the region durations to reconstruct the physical time
     macroIntegrator = OthorgonalCollocation(np.array(ca.collocation_points(d_SAM, nlp_options['SAM_MaInt_type'])))
     tau_SX = ca.SX.sym('tau', 1)
-    t_recon_SX = T_regions[0]
+    t_recon_SX = 0
     for i in range(d_SAM):  # iterate over the collocation nodes
-        t_recon_SX += T_regions[i + 1] * macroIntegrator.polynomials_int[i](tau_SX / N_SAM) * N_SAM
+        t_recon_SX += T_regions[i] * macroIntegrator.polynomials_int[i](tau_SX / N_SAM) * N_SAM
     t_recon_f = ca.Function('t_SAM', [tau_SX, t_f_sym], [t_recon_SX])
 
-    # 2. fill reelout values
+    # 1. fill reelout values
     tau_tgrid_x = np.linspace(0, N_SAM, regions_deltans[1] * N_SAM, endpoint=False)
     duration_interval_tau = 1 / (regions_deltans[1])
     tau_tgrid_coll = []
@@ -478,7 +456,7 @@ def construct_time_grids_SAM_reconstruction(nlp_options) -> dict:
     tcoll.append(t_recon_f.map(tau_tgrid_coll.size)(tau_tgrid_coll, t_f_sym).T)
     t_local = t_recon_f(N_SAM, t_f_sym)
 
-    # 3. fill reelin values
+    # 2. fill reelin values
     for j_local in regions_indeces[-1]:
         # speed of time of the specific interval
         duration_interval = T_regions[-1] / regions_deltans[-1]
@@ -501,13 +479,6 @@ def construct_time_grids_SAM_reconstruction(nlp_options) -> dict:
 
     return time_grid_reconstruction
 
-    # plt.figure(figsize=(10, 10))
-    # T_regions_opt = ca.Function('T_regions', [t_f_sym], [T_regions])(t_f_opt).full()
-    # plt.plot(np.arange(n_k_total + 1), time_grid_recon_eval['x'].full().flatten(), label='x')
-    # plt.axhline(y=T_regions_opt[0], color='r', linestyle='--', label='pre-reelout')
-    # plt.axhline(y=T_regions_opt[0], color='r', linestyle='--', label='pre-reelout')
-    # plt.grid(alpha=0.25)
-    # plt.show()
 
 def construct_time_grids_SAM(nlp_options):
     # assert nlp_options['phase_fix'] == 'single_reelout'
@@ -525,12 +496,12 @@ def construct_time_grids_SAM(nlp_options):
         tcoll = []
 
     # make symbolic time constants
-    N_regions = nlp_options['d_SAM'] + 2
-    tfsym = cas.SX.sym('tfsym',N_regions )
+    N_regions = nlp_options['d_SAM'] + 1
+    tfsym = cas.SX.sym('tfsym',N_regions)
     regions_indexes = struct_op.calculate_SAM_regions(nlp_options)
     assert len(regions_indexes) == N_regions
     regions_deltans = np.array([region.__len__() for region in regions_indexes])
-    T_regions = tfsym/nk*regions_deltans # the duration of each discretization region
+    T_regions = tfsym/nk*regions_deltans  # the duration of each discretization region
 
     # SAM options
     N_SAM = nlp_options['N_SAM']
@@ -558,23 +529,21 @@ def construct_time_grids_SAM(nlp_options):
         # reset the local time
         t_local = 0
 
-        # calculate the offset
-        if j == 0:
+        # calculate the offset for this region
+        if j in range(0,N_regions-1):
+            # micro_integrations
             t_SAMoffset = 0
-        elif j in range(1,N_regions-1):
-            t_SAMoffset = T_regions[0]
             for i in range(d_macro):  # iterate over the collocation nodes
-                t_SAMoffset += T_regions[i+1] * poly_ints[i](c_macro[j-1])*N_SAM
+                t_SAMoffset += T_regions[i] * poly_ints[i](c_macro[j])*N_SAM
             t_SAMoffset += shift_ADA*T_regions[j]
 
         elif j == N_regions-1:
-            t_SAMoffset = T_regions[0]
+            t_SAMoffset = 0
             for i in range(d_macro):
-                t_SAMoffset += T_regions[i+1] * b_macro[i]*N_SAM
+                t_SAMoffset += T_regions[i] * b_macro[i]*N_SAM
         else:
             raise ValueError('invalid region index')
 
-        # print(f'j: {j} \t t_SAMoffset: {t_SAMoffset}')
         # iterate over the intervals in the region
         for _ in region_indexes:
 
@@ -584,8 +553,6 @@ def construct_time_grids_SAM(nlp_options):
             # add interval timings
             tx.append(t_SAMoffset + t_local)
             tu.append(t_SAMoffset + t_local)
-
-            # print(f'\t j={j} App: {str(t_SAMoffset + t_local)}')
 
             # add collocation timings
             if direct_collocation:
@@ -616,125 +583,8 @@ def construct_time_grids_SAM(nlp_options):
     time_grids['x'] = cas.Function('tgrid_x',[tfsym],[tx])
     time_grids['u'] = cas.Function('tgrid_u',[tfsym],[tu])
 
-
     return time_grids
-def setup_nlp_cost():
 
-    cost = cas.struct_symMX([(
-        cas.entry('tracking'),
-        cas.entry('u_regularisation'),
-        cas.entry('xdot_regularisation'),
-        cas.entry('gamma'),
-        cas.entry('iota'),
-        cas.entry('psi'),
-        cas.entry('tau'),
-        cas.entry('eta'),
-        cas.entry('nu'),
-        cas.entry('upsilon'),
-        cas.entry('fictitious'),
-        cas.entry('power'),
-        cas.entry('power_derivative'),
-        cas.entry('t_f'),
-        cas.entry('theta_regularisation'),
-        cas.entry('nominal_landing'),
-        cas.entry('compromised_battery'),
-        cas.entry('transition'),
-        cas.entry('slack'),
-        cas.entry('beta'),
-        cas.entry('P_max')
-    )])
-
-    return cost
-
-
-def setup_nlp_p_fix(V, model):
-
-    # fixed system parameters
-    p_fix = cas.struct_symMX([(
-        cas.entry('ref', struct=V),     # tracking reference for cost function
-        cas.entry('weights', struct=model.variables)  # weights for cost function
-    )])
-
-    return p_fix
-
-def setup_nlp_p(V, model):
-
-    cost = setup_nlp_cost()
-    p_fix = setup_nlp_p_fix(V, model)
-
-    # use_vortex_linearization = 'lin' in model.parameters_dict.keys()
-    # if use_vortex_linearization:
-    #     P = cas.struct_symMX([
-    #         cas.entry('p', struct=p_fix),
-    #         cas.entry('cost', struct=cost),
-    #         cas.entry('theta0', struct=model.parameters_dict['theta0']),
-    #         cas.entry('lin', struct=V)
-    #     ])
-    # else:
-    P = cas.struct_symMX([
-        cas.entry('p',      struct = p_fix),
-        cas.entry('cost',   struct = cost),
-        cas.entry('theta0', struct = model.parameters_dict['theta0'])
-    ])
-
-    return P
-
-def setup_integral_output_structure(nlp_options, integral_outputs):
-
-    nk = nlp_options['n_k']
-
-    entry_tuple = ()
-
-    # interval outputs
-    entry_tuple += (
-        cas.entry('int_out', repeat = [nk+1], struct = integral_outputs),
-    )
-
-    if nlp_options['discretization'] == 'direct_collocation':
-        d  = nlp_options['collocation']['d']
-        entry_tuple += (
-            cas.entry('coll_int_out', repeat = [nk,d], struct = integral_outputs),
-        )
-
-    Integral_outputs_struct = cas.struct_symMX([entry_tuple])
-
-    return Integral_outputs_struct
-
-def setup_output_structure(nlp_options, model_outputs, global_outputs):
-
-    # create outputs
-    nk = nlp_options['n_k']
-
-    entry_tuple =  ()
-    if nlp_options['discretization'] == 'direct_collocation':
-
-        # extract collocation parameters
-        d  = nlp_options['collocation']['d']
-        scheme = nlp_options['collocation']['scheme']
-
-        # define outputs on interval and collocation nodes
-        if nlp_options['collocation']['u_param'] == 'poly':
-            entry_tuple += (
-                cas.entry('coll_outputs', repeat = [nk,d], struct = model_outputs),
-            )
-
-        elif nlp_options['collocation']['u_param'] == 'zoh':
-            entry_tuple += (
-                cas.entry('outputs',      repeat = [nk],   struct = model_outputs),
-                cas.entry('coll_outputs', repeat = [nk,d], struct = model_outputs),
-            )
-
-    elif nlp_options['discretization'] == 'multiple_shooting':
-
-        # define outputs on interval nodes
-        entry_tuple += (
-            cas.entry('outputs', repeat = [nk], struct = model_outputs),
-        )
-
-    Outputs = cas.struct_symMX([entry_tuple]
-                           + [cas.entry('final', struct=global_outputs)])
-
-    return Outputs
 
 def discretize(nlp_options, model, formulation):
 
@@ -767,14 +617,12 @@ def discretize(nlp_options, model, formulation):
     ms_vars = None
     ms_params = None
 
-
-    #-------------------------------------------
+    # -------------------------------------------
     # DISCRETIZE VARIABLES, CREATE NLP PARAMETERS
-    #-------------------------------------------
+    # -------------------------------------------
 
     # construct time grids for this nlp
     time_grids = construct_time_grids(nlp_options)
-
 
     # ---------------------------------------
     # PREPARE OUTPUTS STRUCTURE
@@ -784,9 +632,9 @@ def discretize(nlp_options, model, formulation):
     global_outputs, _ = ocp_outputs.collect_global_outputs(nlp_options, model, V)
     global_outputs_fun = cas.Function('global_outputs_fun', [V, P], [global_outputs.cat])
 
-    #-------------------------------------------
+    # -------------------------------------------
     # COLLOCATE OUTPUTS
-    #-------------------------------------------
+    # -------------------------------------------
 
     # prepare listing of outputs and constraints
     Outputs_list = []
@@ -829,35 +677,25 @@ def discretize(nlp_options, model, formulation):
     # modify the constraints for SAM
     # ---------------------------------------------
     SAM_cstrs_list = ocp_constraint.OcpConstraintList()
-    # phase constraints to start and endpoint of the the reel-out phase
-
-
-
-
     SAM_cstrs_entry_list = []
 
     N_SAM = nlp_options['N_SAM']
     d_SAM = nlp_options['d_SAM']
+
+    # macro-integrator
     # assert d_SAM == 1, 'for now we only support d_SAM = 1'
-    # macroIntegrator = Lobatto3A_Order4()
-    macroIntegrator = OthorgonalCollocation(np.array(cas.collocation_points(d_SAM,nlp_options['SAM_MaInt_type'])))
     # macroIntegrator = ForwardEuler()
-    c_macro,A_macro,b_macro = macroIntegrator.c,macroIntegrator.A,macroIntegrator.b
+    macroIntegrator = OthorgonalCollocation(np.array(cas.collocation_points(d_SAM,nlp_options['SAM_MaInt_type'])))
+    c_macro, A_macro, b_macro = macroIntegrator.c, macroIntegrator.A, macroIntegrator.b
     assert d_SAM == c_macro.size
 
     tf_regions_indices = struct_op.calculate_SAM_regions(nlp_options)
-    SAM_regions_indeces = tf_regions_indices[1:-1] # we are not intersted in the first region (pre-reelout) and the last region (reelin)
+    SAM_regions_indeces = tf_regions_indices[:-1]  # we are not intersted the last region (reelin)
 
-    # vz_phase = V['sam_misc','beta']
-
-    # iterate micro-integrations
-    n_SAM_microints = SAM_regions_indeces.__len__()
-
-
-    for i in range(n_SAM_microints):
-
-        n_first = SAM_regions_indeces[i][0] # first interval index of the region
-        n_last = SAM_regions_indeces[i][-1] # last interval index of the region
+    # iterate the SAM micro-integrations
+    for i in range(d_SAM):
+        n_first = SAM_regions_indeces[i][0]  # first interval index of the region
+        n_last = SAM_regions_indeces[i][-1]  # last interval index of the region
 
         # 1. XMINUS: connect x_minus with start of the micro integration
         xminus = model.variables_dict['x'](V['x_micro_minus',i])
@@ -867,7 +705,7 @@ def discretize(nlp_options, model, formulation):
         SAM_cstrs_list.append(micro_connect_xminus)
         SAM_cstrs_entry_list.append(cas.entry(f'micro_connect_xminus_{i}', shape=xminus.shape))
 
-        # 2. XPLUS: replace the continutiy constraint for the last collocation interval of the reelout phase
+        # 2. XPLUS: replace the continutiy constraint for the last collocation interval of the region
         xplus = model.variables_dict['x'](V['x_micro_plus', i])
         ocp_cstr_list.get_constraint_by_name(f'continuity_{n_last}').expr = xplus.cat - model.variables_dict['x'](Collocation.get_continuity_expression(V,n_last)).cat
 
@@ -911,9 +749,16 @@ def discretize(nlp_options, model, formulation):
     X_macro_start = model.variables_dict['x'](V['x_macro', 0])
     X_macro_end = model.variables_dict['x'](V['x_macro', -1])
 
-    # START: connect X0_macro and the x_plus
-    ocp_cstr_list.get_constraint_by_name(f'continuity_{tf_regions_indices[0][-1]}').expr = X_macro_start.cat - model.variables_dict['x'](
-        Collocation.get_continuity_expression(V, tf_regions_indices[0][-1])).cat
+    # START: connect X0_macro and the endpoint of the reelin phase, by replacing the periodicity constraint
+    # reconstruct the periodicty constraint ('remove state e') from constraint
+    state_start = model.variables_dict['x'](X_macro_start)
+    state_end =  model.variables_dict['x'](V['x', -1])
+    periodicty_expr = []
+    for name in state_start.keys():
+        if name is not 'e':
+            periodicty_expr.append(state_start[name] - state_end[name])
+
+    ocp_cstr_list.get_constraint_by_name(f'state_periodicity').expr = ca.vertcat(*periodicty_expr)
 
     # Macro RK scheme
     for i in range(d_SAM):
@@ -938,8 +783,6 @@ def discretize(nlp_options, model, formulation):
                                   cstr_type='eq')
     SAM_cstrs_list.append(macro_connect_reelin)
     SAM_cstrs_entry_list.append(cas.entry('macro_connect_reelin', shape=xminus.shape))
-
-
 
 
     # overwrite the ocp_cstr_struct with new entries
