@@ -75,7 +75,8 @@ class Trial(object):
             self.__formulation    = formulation.Formulation()
             self.__nlp            = nlp.NLP()
             self.__optimization   = optimization.Optimization()
-            self.__visualization  = visualization.Visualization()
+            self.__visualization  = visualization.VisualiationSAM() if self.__options['nlp']['SAM']['use'] else visualization.Visualization()
+            # self.__visualization  = visualization.Visualization()
             self.__quality        = quality.Quality()
             self.__name           = name    #todo: names used as unique identifiers in sweep. smart?
             self.__type           = 'Trial'
@@ -165,7 +166,7 @@ class Trial(object):
         if (not intermediate_solve and recalibrate_viz):
             cost_fun = self.nlp.cost_components[0]
             cost = struct_op.evaluate_cost_dict(cost_fun, self.optimization.V_opt, self.optimization.p_fix_num)
-            self.visualization.recalibrate(self.optimization.V_opt,self.visualization.plot_dict, self.optimization.output_vals,
+            self.visualization.recalibrate(self.optimization.V_opt, self.optimization.output_vals,
                                             self.optimization.integral_outputs_final, self.options, self.optimization.time_grids,
                                             cost, self.name, self.__optimization.V_ref, self.__optimization.global_outputs_opt)
 

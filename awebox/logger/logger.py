@@ -29,7 +29,7 @@
 import logging.config
 import os
 
-def singleton(cls):
+def singleton(cls): # This is stupid, logging already provides a singleton
     instances = {}
     def get_instance():
         if cls not in instances:
@@ -38,7 +38,7 @@ def singleton(cls):
     return get_instance()
 
 @singleton
-class Logger():
+class Logger:
     def __init__(self):
 
         config_file = 'logging.conf'

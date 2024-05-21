@@ -41,8 +41,8 @@ import awebox.ocp.var_struct as var_struct
 import awebox.tools.struct_operations as struct_op
 import awebox.tools.print_operations as print_op
 
-def construct_time_grids(nlp_options):
 
+def construct_time_grids(nlp_options):
     time_grids = {}
     nk = nlp_options['n_k']
     if nlp_options['discretization'] == 'direct_collocation':

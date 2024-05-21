@@ -94,8 +94,8 @@ def build_si_initial_guess(nlp, model, formulation, init_options):
 
         regions_indices_SAM = struct_op.calculate_SAM_regions(nlp.options)
 
-        for index in range(nlp.options['d_SAM']):
-            multipliers_ADA = {'FD':[1,0],'BD':[0,1],'CD':[0.5,0.5],}[nlp.options['SAM_ADAtype']]
+        for index in range(nlp.options['SAM']['d']):
+            multipliers_ADA = {'FD':[1,0],'BD':[0,1],'CD':[0.5,0.5],}[nlp.options['SAM']['ADAtype']]
             V_init['x_macro_coll',index] = (multipliers_ADA[0]*V_init['x',regions_indices_SAM[index+1][0]]
                                             + multipliers_ADA[1]*V_init['x',regions_indices_SAM[index+1][1]])
 

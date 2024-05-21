@@ -147,7 +147,7 @@ class Simulation:
     def __initialize_sim(self, n_sim, x0, u_sim, startTime:float = 0):
         """ Initialize simulation.
         """
-        if self.trial.options['nlp']['flag_SAM_reconstruction']:
+        if self.trial.options['nlp']['SAM']['flag_SAM_reconstruction']:
             # change the index from the MPC grid to the NLP variables
             startIndex,_ = calculate_kdx_SAM_reconstruction(self.trial.nlp.options, self.__trial.optimization.V_opt, startTime*self.__ts)
         else:

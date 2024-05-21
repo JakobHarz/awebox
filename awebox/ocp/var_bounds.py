@@ -29,6 +29,7 @@ python-3.5 / casadi-3.4.5
 - refactored from awebox code (elena malz, chalmers; jochem de schutter, alu-fr; rachel leuthold, alu-fr), 2018
 - edited: rachel leuthold, jochem de schutter alu-fr 2020
 '''
+from enum import Enum
 
 import casadi.tools as cas
 
@@ -86,7 +87,7 @@ def get_scaled_variable_bounds(nlp_options, V, model):
                 if nlp_options['phase_fix'] == 'simple':
                     vars_lb[var_type, name] = model.variable_bounds[var_type][name]['lb']
                     vars_ub[var_type, name] = model.variable_bounds[var_type][name]['ub']
-                elif nlp_options['useAverageModel']:
+                elif nlp_options['SAM']['use']:
                     vars_lb[var_type, name] = model.variable_bounds[var_type][name]['lb']
                     vars_ub[var_type, name] = model.variable_bounds[var_type][name]['ub']
             else:
@@ -107,8 +108,16 @@ def get_scaled_variable_bounds(nlp_options, V, model):
             vars_ub[var_type, name] = cas.inf
 
         vars_lb['theta', 't_f', -1] = model.variable_bounds['theta']['t_f']['lb']
-        vars_ub['theta', 't_f', -1] = model.variable_bounds['theta']['t_f']['ub']*5
+        vars_ub['theta', 't_f', -1] = model.variable_bounds['theta']['t_f']['ub']*3
     return [vars_lb, vars_ub]
+
+
+# enum for phase options
+class PhaseOptions(Enum):
+    REELOUT = 'reelout'
+    REELIN = 'reelin'
+    TRANSITION = 'transition'
+
 
 def assign_phase_fix_bounds(nlp_options, model, vars_lb, vars_ub, coll_flag, var_type, kdx, ddx, name):
 
@@ -118,23 +127,43 @@ def assign_phase_fix_bounds(nlp_options, model, vars_lb, vars_ub, coll_flag, var
             vars_lb[var_type, 0, name, 1] = 0.0
             vars_ub[var_type, 0, name, 1] = 0.0
 
-    # lift-mode phase fixing
-    if nlp_options['useAverageModel']:
-        # get the region indices
-        SAM_regions = struct_op.calculate_SAM_regions(nlp_options)
-        # in reelin phase?
-        offset = 1
-        in_reelout_phase = not (kdx in SAM_regions[-1][offset:-offset])
-    else:
-        switch_kdx = round(nlp_options['n_k'] * nlp_options['phase_fix_reelout'])
-        in_reelout_phase = (kdx < switch_kdx)
+    switch_kdx = round(nlp_options['n_k'] * nlp_options['phase_fix_reelout'])
+    in_reelout_phase = (kdx < switch_kdx)
 
     n_k = nlp_options['n_k']
 
     periodic, _, _, _, _, _, _ = operation.get_operation_conditions(nlp_options)
     if nlp_options['system_type'] == 'lift_mode':
         if name == 'dl_t':
-            if nlp_options['phase_fix'] == 'single_reelout':
+            if nlp_options['SAM']['use']:
+                assert not nlp_options['collocation'][
+                               'u_param'] == 'poly', 'poly control param not suppoert yet for average model'
+
+                # get the region indices
+                SAM_regions = struct_op.calculate_SAM_regions(nlp_options)
+                # in reelin phase?
+                offset = 1
+                phase = PhaseOptions.REELOUT  # default
+                if kdx in SAM_regions[-1][offset:-offset]:  # in TRANSITION
+                    phase = PhaseOptions.REELIN
+                elif kdx in SAM_regions[-1]:  # in REELIN
+                    phase = PhaseOptions.TRANSITION
+
+                # print(f'Index {kdx} is in phase {phase}', flush=True)
+
+                if phase == PhaseOptions.TRANSITION:
+                    vars_lb[var_type, kdx, name] = model.variable_bounds[var_type][name]['lb']
+                    vars_ub[var_type, kdx, name] = model.variable_bounds[var_type][name]['ub']
+                elif phase == PhaseOptions.REELOUT:
+                    vars_lb[var_type, kdx, name] = 0.0
+                    vars_ub[var_type, kdx, name] = model.variable_bounds[var_type][name]['ub']
+                elif phase == PhaseOptions.REELIN:
+                    vars_lb[var_type, kdx, name] = model.variable_bounds[var_type][name]['lb']
+                    vars_ub[var_type, kdx, name] = 0.0
+                else:
+                    awelogger.logger.error('phase not defined')
+
+            elif nlp_options['phase_fix'] == 'single_reelout':
 
                 # we cannot constraint ALL THREE OF kdx == 0 and kdx == n_k and periodicity.
                 condition = (var_type == 'x') and (not coll_flag) and nlp_options['collocation']['u_param'] == 'zoh'

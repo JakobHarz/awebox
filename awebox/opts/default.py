@@ -73,7 +73,6 @@ def set_default_options(default_user_options, help_options):
 
     kite_colors = ['b', 'g', 'r', 'm', 'c'] * 3
     dim_colors = ['b', 'g', 'r', 'm', 'c', 'y', 'darkorange', 'darkkhaki', 'darkviolet']
-
     default_options_tree = [
 
         ## atmosphere model
@@ -282,13 +281,24 @@ def set_default_options(default_user_options, help_options):
         ('nlp',  'collocation',      None, 'name_constraints',     False,                  ('names nlp collocation constraints according to the extended model constraint. slow, but useful when debugging licq problems with the health check', [True, False]), 't'),
 
         # average model options
-        ('nlp', None, None, 'useAverageModel', False, ('option to use average model [false]', None), 't'),
-        ('nlp', None, None, 'flag_SAM_reconstruction', False, ('if true, the variables are reconstructed from an SAM solution', None), 't'),
-        ('nlp', None, None, 'N_SAM', 2, ('number of "skipped" cycles [int]', None), 't'),
-        ('nlp', None, None, 'd_SAM', 1, ('number of microInts (cycles)', None), 't'),
-        ('nlp', None, None, 'SAM_ADAtype', 1, ('type of the average dynamics approximation', ['FD','BD','CD']), 't'),
-        ('nlp', None, None, 'SAM_MaInt_type', 1, ('type of macro integration coll', ['legendre','radau']), 't'),
-        ('nlp', None, None, 'SAM_Regularization', 1, ('regularization factor for SAM [float]',None), 't'),
+        ('nlp', 'SAM', None, 'use', False, ('option to use average model [false]', None), 't'),
+        ('nlp', 'SAM', None, 'N', 2, ('number of "skipped" cycles [int]', None), 't'),
+        ('nlp', 'SAM', None, 'd', 1, ('number of microInts (cycles)', None), 't'),
+        ('nlp', 'SAM', None, 'ADAtype', 1, ('type of the average dynamics approximation', ['FD','BD','CD']), 't'),
+        ('nlp', 'SAM', None, 'MaInt_type', 1, ('type of macro integration coll', ['legendre','radau']), 't'),
+        ('nlp', 'SAM', None, 'flag_SAM_reconstruction', False, ('if true, the variables are reconstructed from an SAM solution', None), 't'),
+
+        #averager moel regularization
+        ('nlp', 'SAM', 'Regularization', 'AverageStateFirstDeriv', 1E-3, ('regularization factor the first derivative of the average state trajectory', None), 't'),
+        ('nlp', 'SAM', 'Regularization', 'AverageStateThirdDeriv', 1, ('regularization factor for the third derivative of the average state trajectory', None), 't'),
+        ('nlp', 'SAM', 'Regularization', 'AverageAlgebraicsThirdDeriv', 0, ('regularization factor the third derivative of the average algebraics trajectory', None), 't'),
+        ('nlp', 'SAM', 'Regularization', 'SimilarMicroIntegrationDuration', 10, ('regularization factor the similarity of the durations of the micro-integrations', None), 't'),
+        ('nlp', 'SAM', 'Regularization', 'StateWeights', {'q': [1E-8, 0.005, 0.005],  # we dont penalize the x position
+                                                          'dq': 0.01,  # we want the velocities to be similar
+                                                          'r': 0.01,  # we want the orientations to be similar
+                                                          'omega': 0.01,  # we want the velocities to be similar
+                                                          'delta': 0.01  # we want the controls to be similar
+                                                          }, ('weights for some states, the rest is initialized with 1E-8 [dict]', None), 't'),
 
         ('nlp',  None,               None, 'phase_fix_reelout',    0.7,                    ('time fraction of reel-out phase', None),'x'),
         ('nlp',  None,               None, 'pumping_range',        [None, None],           ('set predefined pumping range (only in comb. w. phase-fix)', None),'x'),
@@ -521,6 +531,7 @@ def set_default_options(default_user_options, help_options):
         ('quality', 'test_param', None, 'check_energy_summation', False,    ('check that no kinetic or potential energy source has gotten lost', None), 'x'),
         ('quality', 'test_param', None, 'energy_summation_thresh', 1.e-10,  ('maximum lost kinetic or potential energy from different calculations', None), 'x'),
     ]
+
 
     default_options_tree = add_available_aerodynamic_stability_derivative_overwrites(default_options_tree)
 

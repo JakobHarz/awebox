@@ -29,6 +29,8 @@ python-3.5 / casadi-3.4.5
 - authors: elena malz 2016
            rachel leuthold, jochem de schutter alu-fr 2017-21
 '''
+from typing import Dict, List
+
 import casadi
 import casadi as ca
 import casadi.tools as cas
@@ -174,7 +176,7 @@ class OthorgonalCollocation:
             sum += p_vals[:, i] * _ls[i]
 
         # reshape the result into the original shape
-        result = cas.reshape(sum,shape)
+        result = cas.reshape(sum, shape)
 
         if fixedValues is None:
             return cas.Function('polyEval', [t] + Xs, [result])
@@ -196,82 +198,82 @@ class Lobatto3A_Order4:
     d = c.shape[0]
 
 
-def reconstruct_full_from_SAM(trial,Vopt: cas.struct):
-    # TODO: CLEAN THIS UP
+def reconstruct_full_from_SAM(nlpoptions: dict, Vopt: ca.tools.struct, output_vals_opt: ca.DM):
+    """
+    Reconstruct the full trajectory from the SAM discretization with micro- and macro-integrations.
+    This works by interpolating the polynomials for of the algebraic variables (that are the micro-integrations)
+    of the DAE for the average dynamics. The time grid is reconstructed by interpolating the time-scaling parameters.
 
-    model = trial.model
-    options = trial.options
+    This functions returns a structure `V` (that has the same structure as the regular variables if no averaging is used)
+    that contains the full trajectory, the time grid and the output values. It has `nk_total` integration intervals, with `d_micro` collocation nodes each.
 
-    d_SAM = options['nlp']['d_SAM']
-    N_SAM = options['nlp']['N_SAM']
-    macroIntegrator = OthorgonalCollocation(np.array(ca.collocation_points(d_SAM, options['nlp']['SAM_MaInt_type'])))
-    regions_indeces = struct_op.calculate_SAM_regions(trial.nlp.options)
+    :param nlpoptions: the nlp options, e.g. trial.options['nlp']
+    :param Vopt: the optimal variables from the SAM discretization
+    :param output_vals_opt: the optimal output values from the SAM discretization
+    :return:
+    """
+    assert {'x', 'u', 'z', 'coll_var', 'theta'}.issubset(Vopt.keys())
+    d_micro = nlpoptions['collocation']['d']
+
+
+    assert output_vals_opt.shape[1] == (d_micro + 1) * (nlpoptions['n_k'])
+    n_outputs = output_vals_opt.shape[0]
+
+    d_SAM = nlpoptions['SAM']['d']
+    N_SAM = nlpoptions['SAM']['N']
+    macroIntegrator = OthorgonalCollocation(np.array(ca.collocation_points(d_SAM, nlpoptions['SAM']['MaInt_type'])))
+    regions_indeces = struct_op.calculate_SAM_regions(nlpoptions)
 
     t_f_opt = Vopt['theta', 't_f']
     assert t_f_opt.shape[0] == d_SAM + 1
-
-    solution_dict = trial.solution_dict
 
     from casadi.tools import struct_symMX, entry
     N_regions = d_SAM + 1
     assert len(regions_indeces) == N_regions
     regions_deltans = np.array([region.__len__() for region in regions_indeces])
-    n_k_total = regions_deltans[-1] + trial.options['nlp']['N_SAM'] * regions_deltans[0]
-    d_micro = trial.options['nlp']['collocation']['d']
+    n_k_total = regions_deltans[-1] + N_SAM * regions_deltans[0]
 
-    # create empty structure
-    entry_list = []
-    entry_list.append(entry('x', struct=model.variables_dict['x'], repeat=[n_k_total + 1]))
-    entry_list.append(entry('u', struct=model.variables_dict['u'], repeat=[n_k_total]))
-    entry_list.append(entry('z', struct=model.variables_dict['z'], repeat=[n_k_total]))
-    coll_var = trial.nlp.Collocation.get_collocation_variables_struct(model.variables_dict,
-                                                                      trial.options['nlp']['collocation']['u_param'])
-    entry_list.append(entry('coll_var', struct=coll_var, repeat=[n_k_total, d_micro]))
+    # create structure and initialize all values to zero
+    V_reconstruct = struct_symMX([entry('x', struct=Vopt.getStruct('x'), repeat=[n_k_total + 1]),
+                                  entry('u', struct=Vopt.getStruct('u'), repeat=[n_k_total]),
+                                  entry('z', struct=Vopt.getStruct('z'), repeat=[n_k_total]),
+                                  entry('coll_var', struct=Vopt.getStruct('coll_var'), repeat=[n_k_total, d_micro]),
+                                  entry('theta', struct=Vopt.getStruct('theta'))])(0)
 
-    # theta variables
-    entry_list_thetas = []
-    for name in list(model.variables_dict['theta'].keys()):
-        if name == 't_f':
-            n_tf = trial.options['nlp']['d_SAM'] + 1  # the number of timescaling parameters
-            entry_list_thetas.append(entry('t_f', shape=(n_tf, 1)))
-        else:
-            entry_list_thetas.append(entry(name, shape=model.variables_dict['theta'][name].shape))
-
-    theta = struct_symMX(entry_list_thetas)
-
-    entry_list.append(entry('theta', struct=theta))
-
-    V_reconstruct = struct_symMX(entry_list)(0)
-
+    # sort the micro-integration variables, controls and outputs into the regions for easier access
     zs_micro = []
     us_micro = []
     zs_micro_coll = []
-    for i in range(0, d_SAM):
+    outputs_micro = []
+    for i in range(d_SAM):
         # interpolate the micro-collocation polynomial
         z_micro = []
         u_micro = []
         z_micro_coll = []
+        output_micro = []
         for j in regions_indeces[i]:
             z_micro.append(Vopt['x', j])  # start point of the collocation interval
             z_micro_coll.append(Vopt['coll_var', j, :])  # the collocation points]]
             u_micro.append(Vopt['u', j])  # the control
+            output_micro.append(output_vals_opt[:, j * (d_micro + 1): (j+1) * (d_micro + 1)])  # the output values
         zs_micro.append(z_micro)
         zs_micro_coll.append(z_micro_coll)
         us_micro.append(u_micro)
+        outputs_micro.append(output_micro)
+
     # functions to interpolate the state and collocation nodes
     z_interpol_f = macroIntegrator.getPolyEvalFunction(shape=zs_micro[0][0].shape, includeZero=False)
     u_interpol_f = macroIntegrator.getPolyEvalFunction(shape=us_micro[0][0].shape, includeZero=False)
     z_interpol_f_coll = macroIntegrator.getPolyEvalFunction(shape=zs_micro_coll[0][0][0].shape, includeZero=False)
+    output_interpol_f = macroIntegrator.getPolyEvalFunction(shape=(n_outputs, 1), includeZero=False)
 
     # for the reconstructed trajectory, build the time grid
-    nlp_options = trial.options['nlp']
-    n_k = nlp_options['n_k']
-
-    strobos_eval = np.arange(N_SAM) + {'BD': 1, 'CD': 0.5, 'FD': 0.0}[options['nlp']['SAM_ADAtype']]
+    strobos_eval = np.arange(N_SAM) + {'BD': 1, 'CD': 0.5, 'FD': 0.0}[nlpoptions['SAM']['ADAtype']]
     strobos_eval = strobos_eval * 1 / N_SAM
 
     j = 0
 
+    outputs_reconstructed = []
     # 1. fill reelout values
     for n in range(N_SAM):
         n_micro_ints_per_cycle = regions_deltans[0]  # these are the same for every cycle
@@ -279,18 +281,24 @@ def reconstruct_full_from_SAM(trial,Vopt: cas.struct):
             # evaluate the reconstruction polynomials
             V_reconstruct['x', j] = z_interpol_f(strobos_eval[n], *[zs_micro[k][j_local] for k in range(d_SAM)])
             V_reconstruct['u', j] = u_interpol_f(strobos_eval[n], *[us_micro[k][j_local] for k in range(d_SAM)])
+            outputs_reconstructed.append(output_interpol_f(strobos_eval[n], *[outputs_micro[k][j_local][:,0] for k in range(d_SAM)]))
+
             for i in range(d_micro):
                 V_reconstruct['coll_var', j, i] = z_interpol_f_coll(strobos_eval[n],
                                                                     *[zs_micro_coll[k][j_local][i] for k in
                                                                       range(d_SAM)])
+                outputs_reconstructed.append(
+                    output_interpol_f(strobos_eval[n], *[outputs_micro[k][j_local][:,i+1] for k in range(d_SAM)]))
+
             j = j + 1
 
-    # 3. fill reelin values
+    # 2. fill reelin values
     for j_local in regions_indeces[-1]:
         V_reconstruct['x', j] = Vopt['x', j_local]
         V_reconstruct['u', j] = Vopt['u', j_local]
         V_reconstruct['z', j] = Vopt['z', j_local]
         V_reconstruct['coll_var', j] = Vopt['coll_var', j_local]
+        outputs_reconstructed.append(output_vals_opt[:, j_local * (d_micro + 1): (j_local + 1) * (d_micro + 1)])
         j = j + 1
 
     # last value
@@ -298,31 +306,26 @@ def reconstruct_full_from_SAM(trial,Vopt: cas.struct):
     V_reconstruct['x', -1] = Vopt['x', -1]
 
     # other variables
-    # V_reconstruct['theta','t_f'] = Vopt['theta','t_f']
     V_reconstruct['theta'] = Vopt['theta']
 
-    time_grid_reconstruction = construct_time_grids_SAM_reconstruction(trial.nlp.options)
-
-    # "reconstruct" the output values (fake it): TODO: DO THIS PROPERLY
-    output_vals = solution_dict['output_vals']
-    output_vals_reconstructed = []
-
-    for index_state in range(len(output_vals)):
-        vals = []
-        for kdx in range(n_k_total * (4 + 1)):
-            vals.append(output_vals[index_state][:, kdx % (n_k * (4 + 1))])
-
-        output_vals_reconstructed.append(ca.horzcat(*vals))
-
-    time_grid_recon_eval = {'ref': trial.optimization.time_grids['ref']}  # copy the old reference
-
+    # reconstruct the time grid
+    time_grid_reconstruction = construct_time_grids_SAM_reconstruction(nlpoptions)
+    time_grid_recon_eval = {}
     for key in time_grid_reconstruction.keys():
         time_grid_recon_eval[key] = time_grid_reconstruction[key](t_f_opt)
 
-    return V_reconstruct, time_grid_recon_eval, output_vals_reconstructed
+    # do some sanity checks
+    assert time_grid_recon_eval['x'].shape[0] == n_k_total + 1
+    assert time_grid_recon_eval['u'].shape[0] == n_k_total
+    assert time_grid_recon_eval['x_coll'].shape[0] == n_k_total * (d_micro + 1)
+    assert V_reconstruct['x'].__len__() == n_k_total + 1
+    assert V_reconstruct['u'].__len__() == n_k_total
+    assert V_reconstruct['coll_var'].__len__() == n_k_total
+
+    return V_reconstruct, time_grid_recon_eval, ca.horzcat(*outputs_reconstructed)
 
 
-def construct_time_grids(nlp_options):
+def construct_time_grids(nlp_options) -> dict:
 
     assert nlp_options['phase_fix'] == 'single_reelout'
     # assert nlp_options['discretization'] == 'direct_collocation'
@@ -343,7 +346,7 @@ def construct_time_grids(nlp_options):
         tcoll = None
 
     # make symbolic time constants
-    if nlp_options['useAverageModel']:
+    if nlp_options['SAM']['use']:
         tfsym = cas.SX.sym('tfsym', var_struct.get_number_of_tf(nlp_options))
         # regions_indexes = struct_op.calculate_SAM_regions(nlp_options)
     elif nlp_options['phase_fix'] == 'single_reelout':
@@ -380,7 +383,6 @@ def construct_time_grids(nlp_options):
 
     # add last interval time to tx for last integration node
     tx.append(tcurrent)
-
     tu = cas.vertcat(*tu)
     tx = cas.vertcat(*tx)
     tcoll = cas.vertcat(*tcoll)
@@ -403,13 +405,13 @@ def construct_time_grids(nlp_options):
 
 
 def construct_time_grids_SAM_reconstruction(nlp_options) -> dict:
-    # assert nlp_options['useAverageModel']
+    # assert nlp_options['SAM']['use']
     assert nlp_options['discretization'] == 'direct_collocation'
 
     nk = nlp_options['n_k']
     d = nlp_options['collocation']['d']
-    d_SAM = nlp_options['d_SAM']
-    N_SAM = nlp_options['N_SAM']
+    d_SAM = nlp_options['SAM']['d']
+    N_SAM = nlp_options['SAM']['N']
     scheme_micro = nlp_options['collocation']['scheme']
     tau_root_micro = ca.vertcat(ca.collocation_points(d, scheme_micro))
     N_regions = d_SAM + 1
@@ -429,7 +431,7 @@ def construct_time_grids_SAM_reconstruction(nlp_options) -> dict:
 
     # function to evaluate the reconstructed time
     # quadrature over the region durations to reconstruct the physical time
-    macroIntegrator = OthorgonalCollocation(np.array(ca.collocation_points(d_SAM, nlp_options['SAM_MaInt_type'])))
+    macroIntegrator = OthorgonalCollocation(np.array(ca.collocation_points(d_SAM, nlp_options['SAM']['MaInt_type'])))
     tau_SX = ca.SX.sym('tau', 1)
     t_recon_SX = 0
     for i in range(d_SAM):  # iterate over the collocation nodes
@@ -437,8 +439,8 @@ def construct_time_grids_SAM_reconstruction(nlp_options) -> dict:
     t_recon_f = ca.Function('t_SAM', [tau_SX, t_f_sym], [t_recon_SX])
 
     # 1. fill reelout values
-    tau_tgrid_x = np.linspace(0, N_SAM, regions_deltans[1] * N_SAM, endpoint=False)
-    duration_interval_tau = 1 / (regions_deltans[1])
+    tau_tgrid_x = np.linspace(0, N_SAM, regions_deltans[0] * N_SAM, endpoint=False)
+    duration_interval_tau = 1 / (regions_deltans[0])
     tau_tgrid_coll = []
     for tau_x in tau_tgrid_x:
         tau_tgrid_coll += [tau_x + tau_root_micro.full() * duration_interval_tau]
@@ -480,110 +482,32 @@ def construct_time_grids_SAM_reconstruction(nlp_options) -> dict:
     return time_grid_reconstruction
 
 
-def construct_time_grids_SAM(nlp_options):
-    # assert nlp_options['phase_fix'] == 'single_reelout'
-    assert nlp_options['useAverageModel']
+def eval_time_grids_SAM(nlp_options: dict, tf_opt: ca.DM) -> Dict[str, np.ndarray]:
+    """
+    Calculate the time grids for the SAM discretization.
+    This makes use of a function that translates the original nlp time to the SAM time.
+
+    Returns a dictionary with the time grids for the states ('x'), controls ('u'), collocation nodes ('coll') and the
+    time grid for the states and collocation nodes ('x_coll').
+
+    :param nlp_options: the nlp options, e.g. trial.options['nlp']
+    :param tf_opt: the optimal time-scaling parameters, e.g. Vopt['theta', 't_f']
+    :return: a dictionary of numpy arrays for the timegrids with keys ('x','u', 'coll', 'x_coll')
+    """
+    assert nlp_options['SAM']['use']
     assert nlp_options['discretization'] == 'direct_collocation'
 
-    time_grids = {}
-    nk = nlp_options['n_k']
-    if nlp_options['discretization'] == 'direct_collocation':
-        direct_collocation = True
-        ms = False
-        d_micro = nlp_options['collocation']['d']
-        scheme_micro = nlp_options['collocation']['scheme']
-        tau_root = cas.vertcat(cas.collocation_points(d_micro, scheme_micro))
-        tcoll = []
+    timegrid_AWEbox_f = construct_time_grids(nlp_options)
+    timegrid_AWEbox_eval = {key: timegrid_AWEbox_f[key](tf_opt).full().flatten() for key in timegrid_AWEbox_f.keys()}
+    timegrid_SAM = {}
 
-    # make symbolic time constants
-    N_regions = nlp_options['d_SAM'] + 1
-    tfsym = cas.SX.sym('tfsym',N_regions)
-    regions_indexes = struct_op.calculate_SAM_regions(nlp_options)
-    assert len(regions_indexes) == N_regions
-    regions_deltans = np.array([region.__len__() for region in regions_indexes])
-    T_regions = tfsym/nk*regions_deltans  # the duration of each discretization region
+    # function to go from AWEbox time to SAM time
+    f_scale = originalTimeToSAMTime(nlp_options, tf_opt)
 
-    # SAM options
-    N_SAM = nlp_options['N_SAM']
-    d_macro = nlp_options['d_SAM']
-    scheme_macro = nlp_options['SAM_MaInt_type']
-    macroIntegrator = OthorgonalCollocation(np.array(cas.collocation_points(d_macro, scheme_macro)))
-    c_macro, A_macro, b_macro = macroIntegrator.c, macroIntegrator.A, macroIntegrator.b
-    poly_ints = macroIntegrator.polynomials_int
+    for key in timegrid_AWEbox_f:
+        timegrid_SAM[key] = f_scale.map(timegrid_AWEbox_eval[key].size)(timegrid_AWEbox_eval[key]).full().flatten()
 
-    # create a polynomial for the time
-    # tau_macro = cas.SX.sym('tau_macro')
-    # t_macro = 0
-    # for i in range(d_macro): # iterate over the collocation nodes
-    #     t_macro += T_regions[i] * poly_ints[i](tau_macro)
-
-    # initialize
-    tx = []
-    tu = []
-
-
-    shift_ADA = {'FD': 0, 'BD':-1, 'CD':-0.5}[nlp_options['SAM_ADAtype']]
-
-
-    for j,region_indexes in enumerate(regions_indexes):
-        # reset the local time
-        t_local = 0
-
-        # calculate the offset for this region
-        if j in range(0,N_regions-1):
-            # micro_integrations
-            t_SAMoffset = 0
-            for i in range(d_macro):  # iterate over the collocation nodes
-                t_SAMoffset += T_regions[i] * poly_ints[i](c_macro[j])*N_SAM
-            t_SAMoffset += shift_ADA*T_regions[j]
-
-        elif j == N_regions-1:
-            t_SAMoffset = 0
-            for i in range(d_macro):
-                t_SAMoffset += T_regions[i] * b_macro[i]*N_SAM
-        else:
-            raise ValueError('invalid region index')
-
-        # iterate over the intervals in the region
-        for _ in region_indexes:
-
-            # speed of time of the specific interval
-            duration_interval = tfsym[j]/nk
-
-            # add interval timings
-            tx.append(t_SAMoffset + t_local)
-            tu.append(t_SAMoffset + t_local)
-
-            # add collocation timings
-            if direct_collocation:
-                for i in range(d_micro):
-                    tcoll.append(t_SAMoffset + t_local + tau_root[i] * duration_interval)
-
-            # update current time
-            t_local = t_local + duration_interval
-
-
-    # add last interval time to tx for last integration node
-    tx.append(t_SAMoffset + t_local)
-
-    tu = cas.vertcat(*tu)
-    tx = cas.vertcat(*tx)
-    tcoll = cas.vertcat(*tcoll)
-
-    if direct_collocation:
-        # reshape tcoll
-        tcoll = tcoll.reshape((d_micro,nk)).T
-        tx_coll = cas.vertcat(cas.horzcat(tu, tcoll).T.reshape((nk*(d_micro+1),1)),tx[-1])
-
-        # write out collocation grids
-        time_grids['coll'] = cas.Function('tgrid_coll',[tfsym],[tcoll])
-        time_grids['x_coll'] = cas.Function('tgrid_x_coll',[tfsym],[tx_coll])
-
-    # write out interval grid
-    time_grids['x'] = cas.Function('tgrid_x',[tfsym],[tx])
-    time_grids['u'] = cas.Function('tgrid_u',[tfsym],[tu])
-
-    return time_grids
+    return timegrid_SAM
 
 
 def discretize(nlp_options, model, formulation):
@@ -679,13 +603,13 @@ def discretize(nlp_options, model, formulation):
     SAM_cstrs_list = ocp_constraint.OcpConstraintList()
     SAM_cstrs_entry_list = []
 
-    N_SAM = nlp_options['N_SAM']
-    d_SAM = nlp_options['d_SAM']
+    N_SAM = nlp_options['SAM']['N']
+    d_SAM = nlp_options['SAM']['d']
 
     # macro-integrator
     # assert d_SAM == 1, 'for now we only support d_SAM = 1'
     # macroIntegrator = ForwardEuler()
-    macroIntegrator = OthorgonalCollocation(np.array(cas.collocation_points(d_SAM,nlp_options['SAM_MaInt_type'])))
+    macroIntegrator = OthorgonalCollocation(np.array(cas.collocation_points(d_SAM,nlp_options['SAM']['MaInt_type'])))
     c_macro, A_macro, b_macro = macroIntegrator.c, macroIntegrator.A, macroIntegrator.b
     assert d_SAM == c_macro.size
 
@@ -726,7 +650,7 @@ def discretize(nlp_options, model, formulation):
 
 
         # 5. Connect to Macro integraiton point
-        ada_type = nlp_options['SAM_ADAtype']
+        ada_type = nlp_options['SAM']['ADAtype']
         assert ada_type in ['FD','BD','CD'], 'only FD, BD, CD are supported'
         ada_coeffs = {'FD': [1,-1, 0], 'BD':[0,-1,1], 'CD':[1,-2,1]}[ada_type]
         # if i==0:
@@ -792,4 +716,87 @@ def discretize(nlp_options, model, formulation):
 
     return V, P, Xdot_struct, Xdot_fun, ocp_cstr_list, ocp_cstr_struct, Outputs_struct, Outputs_fun, Integral_outputs_struct, Integral_outputs_fun, time_grids, Collocation, Multiple_shooting, global_outputs, global_outputs_fun
 
+
+def constructPiecewiseCasadiExpression(decisionVariable: ca.SX, edges: List, expressions: List[ca.SX]) -> ca.SX:
+    """
+    Construct a piecewise casadi expression from a list of edges and functions for a given decision variable.
+    For example, if the decision variable is x and the edges are [0,1,2] and the expressions are [f1(x),f2(x)] then the
+    resulting expression is f1(x) if x is in [0,1) and f2(x) if x is in [1,2).
+    For values outside, the function will return nan.
+
+    DO NOT USE THIS FUNCTION FOR OPTIMIZATION, it is not differentiable at the edges.
+
+    :param decisionVariable: the variable that is evaluated
+    :param edges: a list of edge values, in ascending order
+    :param expressions: a list of casadi.SX expressions.
+    :return:
+    """
+    assert type(decisionVariable) == ca.SX, "The decision variable has to be a casadi.SX!"
+    assert decisionVariable.shape == (1, 1), "The decision variable has to be a scalar!"
+    assert type(edges) == list, "The edges have to be a list!"
+    assert type(expressions) == list, "The functions have to be a list!"
+    assert len(expressions) > 0, "There has to be at least one function!"
+    assert len(edges) == len(expressions) + 1, "The number of edges has to be one more than the number of functions!"
+
+    # check that edges are in ascending order
+    assert np.all(np.diff(edges) > 0), "The edges have to be in ascending order!"
+
+    outputExpression = ca.DM(0)
+
+    # add nan for values outside the edges
+    outputExpression += ca.if_else(decisionVariable < edges[0], ca.DM.nan(), 0)
+    outputExpression += ca.if_else(decisionVariable >= edges[-1], ca.DM.nan(), 0)
+
+    # iterate edges
+    for edge_index in range(len(edges) - 1):
+        # condition that we are in the interval
+        _condition = (decisionVariable >= edges[edge_index]) * (decisionVariable < edges[edge_index + 1])
+
+        # add the function to the output expression
+        outputExpression += ca.if_else(_condition, expressions[edge_index], 0)
+
+    return outputExpression
+
+
+def originalTimeToSAMTime(nlpoptions,t_f_opt) -> ca.Function:
+    """ construct an interpolating casadi function
+
+    t_AWE -> t_SAM = f(t_AWE)
+
+    that maps from the AWEbox timegrid (t in [0,sum(T_i]) to the SAM timegrid (discontinuous).
+    This is useful because for interpolating, the AWEBox creates a timegrid as `np.linspace(0, sum(T_i), N)`,
+     this function can then be used to translate this grid.
+    """
+    assert nlpoptions['SAM']['use'], "This function is only for SAM"
+
+    d_SAM = nlpoptions['SAM']['d']
+    N_SAM = nlpoptions['SAM']['N']
+    n_k = nlpoptions['n_k']
+    macroInt = OthorgonalCollocation(np.array(ca.collocation_points(d_SAM, nlpoptions['SAM']['MaInt_type'])))
+
+    # get the regions and the duration of each region
+    regions_indeces = struct_op.calculate_SAM_regions(nlpoptions)
+    regions_deltans = np.array([region.__len__() for region in regions_indeces])
+    T_regions = (t_f_opt / n_k * regions_deltans).full().flatten()  # the duration of each discretization region
+    h = N_SAM
+    t_coll = [sum([h*T_regions[j]*macroInt.A[i,j] for j in range(d_SAM)]) for i in range(d_SAM)]
+    t_reelout_end = sum([h*T_regions[j]*macroInt.b[j] for j in range(d_SAM)])
+
+    t = ca.SX.sym('t')
+    edges = np.cumsum(np.concatenate([[0],T_regions]))
+    edges = edges - 1E-6 # shift all edged by a small amount to avoid numerical issues
+    edges[-1] = edges[-1] + 2E-6
+
+    expressions = []
+
+    # reel out
+    for i in range(d_SAM):
+        offset = t_coll[i]
+        t_offset = edges[i] + T_regions[i]*{'BD': 1, 'CD': 0.5, 'FD': 0.0}[nlpoptions['SAM']['ADAtype']]
+        expressions.append(offset + (t - t_offset))
+
+    # reel in
+    expressions.append(t_reelout_end + (t - sum(T_regions[0:d_SAM])))
+
+    return ca.Function('t_SAM', [t], [constructPiecewiseCasadiExpression(t, edges.tolist(), expressions)])
 

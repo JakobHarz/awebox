@@ -77,7 +77,7 @@ class NLP(object):
     def __generate_discretization(self, nlp_options, model, formulation):
 
         # decide which discretization to use
-        if nlp_options['useAverageModel']:
+        if nlp_options['SAM']['use']:
             discretize_function = discretization_averageModel.discretize
         else:
             discretize_function = discretization.discretize

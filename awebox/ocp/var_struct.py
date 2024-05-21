@@ -93,13 +93,13 @@ def setup_nlp_v(nlp_options: dict, model: Model, collocation: Collocation = None
     ]
 
     # add SAM variables if necessary
-    if nlp_options['useAverageModel']:
-        entry_list += [cas.entry('sam_misc', struct=cas.struct_symMX([cas.entry('beta')])),
+    if nlp_options['SAM']['use']:
+        entry_list += [
                        cas.entry('x_macro', struct=model.variables_dict['x'], repeat=[2]),
-                       cas.entry('x_macro_coll', struct=model.variables_dict['x'], repeat=[nlp_options['d_SAM']]),
-                       cas.entry('v_macro_coll', struct=model.variables_dict['x'], repeat=[nlp_options['d_SAM']]),
-                       cas.entry('x_micro_minus', struct=model.variables_dict['x'], repeat=[nlp_options['d_SAM']]),
-                       cas.entry('x_micro_plus', struct=model.variables_dict['x'], repeat=[nlp_options['d_SAM']]),
+                       cas.entry('x_macro_coll', struct=model.variables_dict['x'], repeat=[nlp_options['SAM']['d']]),
+                       cas.entry('v_macro_coll', struct=model.variables_dict['x'], repeat=[nlp_options['SAM']['d']]),
+                       cas.entry('x_micro_minus', struct=model.variables_dict['x'], repeat=[nlp_options['SAM']['d']]),
+                       cas.entry('x_micro_plus', struct=model.variables_dict['x'], repeat=[nlp_options['SAM']['d']]),
                        ]
 
     # generate structure
@@ -130,8 +130,8 @@ def construct_theta(nlp_options: dict, variables_dict: dict) -> cas.struct_symSX
 
 def get_number_of_tf(nlp_options) -> int:
     """ Determine the number of time-scaling parameters in the NLP. This depends on the discretization method."""
-    if nlp_options['useAverageModel']:
-        n_tf = nlp_options['d_SAM'] + 1  # d_SAM microintegrations regions in reel-out + reel-in regions
+    if nlp_options['SAM']['use']:
+        n_tf = nlp_options['SAM']['d'] + 1  # d_SAM microintegrations regions in reel-out + reel-in regions
     elif nlp_options['phase_fix'] == 'single_reelout':
         n_tf = 2  # in this case, the reel-out and reel-in phases are treated separately
     else:

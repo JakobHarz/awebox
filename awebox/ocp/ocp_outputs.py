@@ -104,16 +104,16 @@ def find_time_period(nlp_numerics_options, V):
         time_period_zeroth = find_phase_fix_time_period_zeroth(nlp_numerics_options, V)
         time_period_first = find_phase_fix_time_period_first(nlp_numerics_options, V)
 
-        if nlp_numerics_options['useAverageModel'] == True:
+        if nlp_numerics_options['SAM']['use'] == True:
             regions_indeces = struct_op.calculate_SAM_regions(nlp_numerics_options)
             delta_ns = [region_indeces.__len__() for region_indeces in regions_indeces]
             assert sum(delta_ns) == nlp_numerics_options['n_k']
 
-            d_SAM = nlp_numerics_options['d_SAM']
-            N_SAM = nlp_numerics_options['N_SAM']
+            d_SAM = nlp_numerics_options['SAM']['d']
+            N_SAM = nlp_numerics_options['SAM']['N']
             from awebox.ocp.discretization_averageModel import OthorgonalCollocation
             macroIntegrator = OthorgonalCollocation(
-                np.array(cas.collocation_points(d_SAM, nlp_numerics_options['SAM_MaInt_type'])))
+                np.array(cas.collocation_points(d_SAM, nlp_numerics_options['SAM']['MaInt_type'])))
             # macroIntegrator = ForwardEuler()
             _, _, b_macro = macroIntegrator.c, macroIntegrator.A, macroIntegrator.b
             assert d_SAM == b_macro.size
@@ -122,7 +122,7 @@ def find_time_period(nlp_numerics_options, V):
             # time_period += delta_ns[0]/ nlp_numerics_options['n_k'] *V['theta', 't_f',0] # t_pRO
             time_period += delta_ns[-1]/ nlp_numerics_options['n_k'] *V['theta', 't_f',-1] # t_RI
 
-            for i in range(nlp_numerics_options['d_SAM']):
+            for i in range(nlp_numerics_options['SAM']['d']):
                 time_period += delta_ns[i]/ nlp_numerics_options['n_k'] * V['theta', 't_f', i] * b_macro[i]*N_SAM
         else:
             # average over collocation nodes

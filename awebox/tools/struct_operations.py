@@ -368,7 +368,7 @@ def calculate_SAM_regionIndex(nlp_options: dict, k: int) -> int:
 
     n_regions = get_number_of_tf(nlp_options)  # the number of time-scaling regions
     n_k = nlp_options['n_k']  # the total number of integration intervals
-    n_micros = nlp_options['d_SAM']  # the number of micro-integrations
+    n_micros = nlp_options['SAM']['d']  # the number of micro-integrations
 
     # 1. reserve ~30% of the ingeration intervals for reelin & pre-reelout
     n_single_micro = round(n_k*0.7/n_micros)
@@ -407,7 +407,7 @@ def calculate_SAM_regions(nlp_options: dict) -> list:
 def calculate_tf_index(nlp_options, k):
     """ Calculates the index of the discretization region (with a constant tf) that the index `k` belongs to """
     nk = nlp_options['n_k']
-    if nlp_options['useAverageModel']:
+    if nlp_options['SAM']['use']:
         assert nlp_options['phase_fix'] == 'single_reelout', 'phase fix must be single_reelout for SAM'
         return calculate_SAM_regionIndex(nlp_options, k)
 
@@ -424,7 +424,7 @@ def calculate_tf(params, V, k):
 
     nk = params['n_k']
 
-    if params['useAverageModel']:
+    if params['SAM']['use']:
         assert params['phase_fix'] == 'single_reelout', 'phase fix must be single_reelout for SAM'
         tf =  V['theta', 't_f', calculate_SAM_regionIndex(params, k)]
 
@@ -437,6 +437,32 @@ def calculate_tf(params, V, k):
         tf = V['theta', 't_f']
 
     return tf
+
+
+def calculate_SAM_regionIndexArray(nlpoptions, Vopt, t: np.ndarray) -> np.ndarray:
+    """
+    For a given time vector t IN THE ORIGINAL AWEBOX TIME, calculate the region index for each time point.
+
+    :param nlpoptions: dictionary with the nlp options e.g option['nlp']
+    :param Vopt: the solution struct
+    :param t: numpy array with the time points
+
+    """
+
+    assert type(t) is np.ndarray, f't must be a numpy array, but is {type(t)}'
+
+    n_k = nlpoptions['n_k']
+    indeces_regions = calculate_SAM_regions(nlpoptions)
+    delta_ns = np.array([len(region) for region in indeces_regions]) # number integration intervals in each region
+    tfs = Vopt['theta', 't_f',:].full().flatten()
+    delta_ts = tfs/n_k * delta_ns # duration of each phase in physical time
+    ts_cumsum = np.cumsum(np.append(0,delta_ts)) # cumulative sum of the phase durations
+
+    # evaluate the region index for a numpy array of times t
+    region_index = np.array([np.sum(s >= ts_cumsum) - 1 for s in t])
+    return region_index
+
+
 
 
 def calculate_kdx_SAM(params, V, t) -> tuple:
@@ -475,7 +501,7 @@ def calculate_kdx_SAM_reconstruction(params, V, t) -> tuple:
     """ Calculate the interval index kdx and the remaining relative interval tau duration of the interval in which the time t is located.
     This is valid only IF THE VARIABLES V are reconstructed versions of the SAM variables.
     """
-    assert params['flag_SAM_reconstruction'], 'This function is only valid for SAM reconstruction'
+    assert params['SAM']['flag_SAM_reconstruction'], 'This function is only valid for SAM reconstruction'
 
     # 1. build timegrid from t_f_opt
     global _timegrid_reconstruct_save
@@ -501,10 +527,10 @@ def calculate_kdx_SAM_reconstruction(params, V, t) -> tuple:
 def calculate_kdx(params, V, t):
 
     n_k = params['n_k']
-    if params['useAverageModel']:
+    if params['SAM']['use']:
         assert params['phase_fix'] == 'single_reelout', 'phase fix must be single_reelout for SAM'
         kdx, tau = calculate_kdx_SAM(params, V, t)
-    elif params['flag_SAM_reconstruction']:
+    elif params['SAM']['flag_SAM_reconstruction']:
         kdx, tau = calculate_kdx_SAM_reconstruction(params, V, t)
     elif params['phase_fix'] == 'single_reelout':
         k_reelout = round(n_k * params['phase_fix_reelout'])

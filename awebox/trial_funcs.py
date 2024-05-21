@@ -236,7 +236,7 @@ def generate_optimal_model(trial, param_options = None):
                     if trial.optimization.V_opt['theta','t_f'].shape[0] == 1:
                         t_f = trial.optimization.V_opt['theta','t_f']
                         variables.append(cas.SX(t_f))
-                    elif trial.options['nlp']['useAverageModel'] or trial.options['nlp']['flag_SAM_reconstruction']:
+                    elif trial.options['nlp']['SAM']['use'] or trial.options['nlp']['SAM']['flag_SAM_reconstruction']:
                         # do something
                         t_f = find_time_period(trial.options['nlp'], trial.optimization.V_opt)
                         variables.append(cas.SX(t_f))
