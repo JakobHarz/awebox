@@ -17,7 +17,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from awebox.ocp.collocation import Collocation
-from awebox.ocp.discretization_averageModel import construct_time_grids_SAM, construct_time_grids_SAM_reconstruction, \
+from awebox.ocp.discretization_averageModel import eval_time_grids_SAM, construct_time_grids_SAM_reconstruction, \
     reconstruct_full_from_SAM
 from awebox.tools.struct_operations import calculate_SAM_regions
 from awebox.logger.logger import Logger as awelogger
@@ -58,7 +58,7 @@ options['user_options.wind.u_ref'] = 10.
 # options['nlp.phase_fix_reelout'] = 0.7
 options['nlp.useAverageModel'] = True
 options['nlp.cost.output_quadrature'] = False  # use enery as a state, works better with SAM
-options['nlp.SAM_MaInt_type'] = 'radau'
+options['nlp.MaInt_type'] = 'radau'
 options['nlp.d_SAM'] = 4 # the number of cycles actually computed
 options['nlp.SAM_ADAtype'] = 'BD'  # the approximation scheme
 options['nlp.SAM_Regularization'] = 1.0  # regularization parameter
@@ -91,7 +91,7 @@ options['visualization.cosmetics.plot_bounds'] = True  # high plotting resolutio
 # sweep.plot(['comp_stats', 'comp_convergence'])
 # plt.show()
 
-for N in [40,50]:
+for N in [10]:
 
     options['nlp.N_SAM'] = N  # the number of full cycles approximated
     if DUAL_KITES:
@@ -106,19 +106,19 @@ for N in [40,50]:
 
     # %% Post-Processing
     Vopt = trial.solution_dict['V_opt']
-    V_reconstruct, time_grid_recon_eval, output_vals_reconstructed = reconstruct_full_from_SAM(trial,Vopt)
+    V_reconstruct, time_grid_recon_eval, output_vals_reconstructed = reconstruct_full_from_SAM(trial,,
 
 
     # %% Plot state trajectories
-    time_grid_SAM = construct_time_grids_SAM(trial.nlp.options)
-    time_grid_SAM_x = time_grid_SAM['x'](Vopt['theta', 't_f']).full().flatten()
+    time_grid_SAM = eval_time_grids_SAM(trial.nlp.options,Vopt['theta', 't_f'])
+    time_grid_SAM_x = time_grid_SAM['x']
 
     # %% put together the state trajectory for export
     import pandas
 
 
     def interpolate_trajectory(trial, V, N: int, Tend: float) -> pandas.DataFrame:
-        assert trial.options['nlp']['flag_SAM_reconstruction']
+        assert trial.options['nlp']['SAM']['flag_SAM_reconstruction']
         df = pandas.DataFrame()
         interpolator = trial.nlp.Collocation.build_interpolator(trial.nlp.options, V)
         t_grid = np.linspace(0, Tend, N)
@@ -135,7 +135,7 @@ for N in [40,50]:
 
 
     def interpolate_SAM_trajectory(trial, V, N: int) -> pandas.DataFrame:
-        assert trial.options['nlp']['useAverageModel'] == True
+        assert trial.options['nlp']['SAM']['use'] == True
         df = pandas.DataFrame()
         interpolator = trial.nlp.Collocation.build_interpolator(trial.nlp.options, V)
 
@@ -162,7 +162,7 @@ for N in [40,50]:
         n_k = trial.nlp.options['n_k']
         regions_indeces = calculate_SAM_regions(trial.nlp.options)
         regions_deltans = np.array([region.__len__() for region in regions_indeces])
-        N_regions = trial.nlp.options['d_SAM'] + 2
+        N_regions = trial.nlp.options['SAM']['d'] + 1
         assert len(regions_indeces) == N_regions
         T_regions = (V[
                          'theta', 't_f'] / n_k * regions_deltans).full().flatten()  # the duration of each discretization region
@@ -185,8 +185,8 @@ for N in [40,50]:
 
         # interpolate the average polynomials
         from awebox.ocp.discretization_averageModel import OthorgonalCollocation
-        d_SAM = trial.nlp.options['d_SAM']
-        coll_points = np.array(ca.collocation_points(d_SAM, trial.nlp.options['SAM_MaInt_type']))
+        d_SAM = trial.nlp.options['SAM']['d']
+        coll_points = np.array(ca.collocation_points(d_SAM, trial.nlp.options['SAM']['MaInt_type']))
         interpolator_average_integrator = OthorgonalCollocation(coll_points)
         interpolator_average = interpolator_average_integrator.getPolyEvalFunction(
             shape=trial.model.variables_dict['x'].cat.shape, includeZero=True)
@@ -206,19 +206,19 @@ for N in [40,50]:
 
         # construct the time grid for the average polynomials
         Tend = float(time_grid_SAM['x'](V['theta', 't_f'])[-1])
-        t_grid_average = np.linspace(T_regions[0], Tend - T_regions[-1], N)  # in AWEBOX time grid!
+        t_grid_average = np.linspace(T_regions[0], Tend - T_regions[-1], N)
         df['t_average'] = t_grid_average
 
         return df
 
 
-    trial.options['nlp']['flag_SAM_reconstruction'] = False
-    trial.options['nlp']['useAverageModel'] = True
+    trial.options['nlp']['SAM']['flag_SAM_reconstruction'] = False
+    trial.options['nlp']['SAM']['use'] = True
     df_SAM = interpolate_SAM_trajectory(trial, Vopt, 2000)
     df_SAM.to_csv(f'_export/varyN/dualKiteLongTrajectory_N_{options["nlp.N_SAM"]}_SAM.csv', index=False)
 
-    trial.options['nlp']['flag_SAM_reconstruction'] = True
-    trial.options['nlp']['useAverageModel'] = False
+    trial.options['nlp']['SAM']['flag_SAM_reconstruction'] = True
+    trial.options['nlp']['SAM']['use'] = False
     df_reconstruct = interpolate_trajectory(trial, V_reconstruct, 2000, float(time_grid_recon_eval['x'][-1]))
     df_reconstruct.to_csv(f'_export/varyN/dualKiteLongTrajectory_N_{options["nlp.N_SAM"]}_REC.csv',
                           index=False)

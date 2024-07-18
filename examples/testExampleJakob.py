@@ -18,20 +18,20 @@ options = ref.set_reference_options(user='A')
 options = ref.set_dual_kite_options(options)
 
 # # number of cycles
-N = 5
+N = 3
 #
 # # indicate desired operation mode
 # # here: lift-mode system with pumping-cycle operation, with a one winding trajectory
-# options['user_options.trajectory.type'] = 'power_cycle'
-# options['user_options.trajectory.system_type'] = 'lift_mode'
+options['user_options.trajectory.type'] = 'power_cycle'
+options['user_options.trajectory.system_type'] = 'lift_mode'
 options['user_options.trajectory.lift_mode.windings'] = N
 #
 # # indicate desired environment
 # # here: wind velocity profile according to power-law
-# options['params.wind.z_ref'] = 100.0
-# options['params.wind.power_wind.exp_ref'] = 0.15
-# options['user_options.wind.model'] = 'power'
-# options['user_options.wind.u_ref'] = 10.
+options['params.wind.z_ref'] = 100.0
+options['params.wind.power_wind.exp_ref'] = 0.15
+options['user_options.wind.model'] = 'power'
+options['user_options.wind.u_ref'] = 10.
 #
 # # initializations
 # options['user_options.system_model.architecture'] = {1:0, 2:1, 3:1}
@@ -39,37 +39,62 @@ options['user_options.trajectory.lift_mode.windings'] = N
 # options['solver.initialization.inclination_deg'] = 25.0
 # options['solver.initialization.cone_deg'] = 20.0
 # options['solver.initialization.theta.l_s'] = 100.0
-# options['solver.initialization.groundspeed'] = 24.0
+options['solver.initialization.groundspeed'] = 30.0
+
 # options['solver.initialization.psi0_rad'] = 0.0
 # options['solver.initialization.theta.diam_s'] = 4e-3/np.sqrt(2)
 # options['solver.initialization.theta.diam_t'] = 4e-3
-options['nlp.n_k'] = 15 * N + 30
+options['nlp.n_k'] = 15 * N
 # options['solver.mu_hippo'] = 1e-4
 #
 # # no collisions
 # options['model.model_bounds.anticollision.include'] = True
 # options['model.model_bounds.anticollision.safety_factor'] = 1
+
+# options['solver.cost.u_regularisation.0'] = 1e-1
+#0
 #
-# # options['solver.cost.u_regularisation.0'] = 1e-1
+options['model.system_bounds.theta.t_f'] = [30, 40 + 40*N]  # [s]
+# options['model.system_bounds.theta.t_f'] = [5, 10 * N]
+options['user_options.trajectory.lift_mode.phase_fix'] = 'single_reelout'
+options['nlp.phase_fix_reelout'] = 0.7
+options['nlp.collocation.u_param'] = 'zoh'
+
 #
-#
-options['model.system_bounds.theta.t_f'] = [40, 40 + 15*N]  # [s]
-# options['user_options.trajectory.lift_mode.phase_fix'] = 'single_reelout'
-# options['nlp.phase_fix_reelout'] = 0.7
-#
-#
+
+
 # # indicate numerical nlp details
 # # here: nlp discretization, with a zero-order-hold control parametrization, and a simple phase-fixing routine. also, specify a linear solver to perform the Newton-steps within ipopt.
 # # options['nlp.n_k'] = 40
-# options['nlp.collocation.u_param'] = 'zoh'
 options['solver.linear_solver'] = 'ma57' # if HSL is installed, otherwise 'mumps'
-options['visualization.cosmetics.interpolation.N'] = 1000 # high plotting resolution
+options['visualization.cosmetics.interpolation.N'] = 1500 # high plotting resolution
 
 # build and optimize the NLP (trial)
 trial = awe.Trial(options, 'JakobsMWExample')
 trial.build()
 trial.optimize()
 
+# %%
+# trial.write_to_csv(f'FullProblem_N{N}',rotation_representation='dcm')
+
+# %% load the csv with pandas
+
+import pandas as pd
+df = pd.DataFrame()
+
+for entry_type in ['x', 'u']:
+    for entry_name in trial.model.variables_dict[entry_type].keys():
+        for index_dim in range(trial.model.variables_dict[entry_type][entry_name].shape[0]):
+            # we evaluate on the AWEBox time grid, not the SAM time grid!
+            values = trial.visualization.plot_dict[entry_type][entry_name][index_dim]
+            name = entry_type + '_' + entry_name + '_' + str(index_dim)
+            df[name] = values
+
+df['time'] = trial.visualization.plot_dict['time_grids']['ip']
+
+
+# %% save to csv
+df.to_csv(f'FullProblem_N{N}.csv',index=False)
 
 # %% draw some of the pre-coded plots for analysis
 trial.plot(['states', 'controls', 'constraints','quad'])
@@ -237,7 +262,7 @@ ax.view_init(elev=18., azim=100)
 
 # plt.legend()
 # plt.tight_layout()
-plt.savefig('figures/noSAM_3DReelout.pdf')
+plt.savefig(f'figures/noSAM_3DReelout_{N}.pdf')
 plt.show()
 
 

@@ -248,7 +248,7 @@ class Visualization(object):
         print('Cannot set plot_logic_dict object.')
 
 
-class VisualiationSAM(Visualization):
+class VisualizationSAM(Visualization):
 
     def __init__(self):
         super().__init__()
@@ -277,7 +277,7 @@ class VisualiationSAM(Visualization):
 
         # replace the interpolating grid with the SAM grid
         time_grid_ip_original: np.ndarray = self.plot_dict_SAM['time_grids']['ip']
-        time_grid_xcoll_original: np.ndarray = self.plot_dict_SAM['time_grids']['x_coll']
+        time_grid_xcoll_original: ca.DM = self.plot_dict_SAM['time_grids']['x_coll']
         originalTimeToSAMTime_f = originalTimeToSAMTime(self.options['nlp'],V_plot['theta', 't_f'])
         time_grid_SAM_eval = eval_time_grids_SAM(self.options['nlp'],V_plot['theta', 't_f'])
         time_grid_SAM_eval['ip'] = originalTimeToSAMTime_f.map(time_grid_ip_original.size)(time_grid_ip_original).full().flatten()
@@ -285,7 +285,7 @@ class VisualiationSAM(Visualization):
         # add the region indices to the SAM plot dictionary
         self.plot_dict_SAM['SAM_regions_x_coll'] = calculate_SAM_regionIndexArray(self.options['nlp'],
                                                                               V_plot,
-                                                                              time_grid_xcoll_original)
+                                                                              time_grid_xcoll_original.full().flatten())
         self.plot_dict_SAM['SAM_regions_ip'] = calculate_SAM_regionIndexArray(self.options['nlp'],
                                                                               V_plot,
                                                                               time_grid_ip_original)
@@ -354,10 +354,10 @@ class VisualiationSAM(Visualization):
             - the interpolated trajectories ('x', 'u', 'z', 'outputs') are the RECONSTRUCTED trajectories
             - the time grid is the RECONSTRUCTED time grid ('time_grids')
             - the raw output vals ('output_vals') are the RECONSTRUCTED output values, but both entries [0] and [1] are
-             the same, since there are no initial reconstructed trajectories.
+              the same, since there are no initial reconstructed trajectories.
 
         Since this is the reconstructed trajectory from a SAM problem,
-         the trajectory is only an approximation of a physical trajectory (!).
+        the trajectory is only an approximation of a physical trajectory (!).
         """
         awelogger.logger.warning('`plot_dict` - You are accessing the RECONSTRUCTED results from a SAM problem. These '
                                  'results are only an approximation of a physical trajectory.')
@@ -408,8 +408,8 @@ def build_interpolate_functions_full_solution(V: cas.struct, tgrid: dict , nlpop
     d_micro = nlpoptions['collocation']['d']
     coll_points = np.array(ca.collocation_points(d_micro,nlpoptions['collocation']['scheme']))
     coll_integrator = OthorgonalCollocation(coll_points)
-    intpoly_x_f = coll_integrator.getPolyEvalFunction(V.getStruct('x').shape, includeZero=True)
-    intpoly_z_f = coll_integrator.getPolyEvalFunction(V.getStruct('z').shape, includeZero=False)
+    intpoly_x_f = coll_integrator.getPolyEvalFunction(V.getStruct('x')(0).shape, includeZero=True)
+    intpoly_z_f = coll_integrator.getPolyEvalFunction(V.getStruct('z')(0).shape, includeZero=False)
     intpoly_outputs_f = coll_integrator.getPolyEvalFunction(output_vals[:, 0].shape, includeZero=True)
 
     # number of intervals & edges
@@ -470,6 +470,7 @@ def dict_from_repeated_struct(struct: ca.tools.struct, values: ca.DM) -> dict:
 
     return dict_out
 
+
 def assign_nested_dict(dictionary: dict, keys: list, value):
     """ (from CHATGPT)
     Indexes a nested dictionary with a list of keys and assigns a value to the final key.
@@ -481,13 +482,6 @@ def assign_nested_dict(dictionary: dict, keys: list, value):
     """
     # Navigate through the dictionary using the keys
     for index,key in enumerate(keys[:-1]):
-        # check the type of the NEXT key
-        # if type(keys[index+1]) == int:
-        #     dictionary = dictionary.setdefault(key, [])
-        # elif type(keys[index+1]) == str:
-        #     dictionary = dictionary.setdefault(key, {})
-        # else:
-        #     raise ValueError('The keys must be either strings or integers.')
         dictionary = dictionary.setdefault(key, {})
 
     # Assign the value to the final key

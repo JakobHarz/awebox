@@ -51,6 +51,7 @@ from awebox.ocp.operation import make_periodicity_equality
 
 
 # todo: move this somewhere or replace with existing collocation functions
+# todo: currently this is being used in Jakobs Average Dynamics implementation
 class OthorgonalCollocation:
     """
     Base Class for all RK Integration Methods, stores the Butcher Tableau of the method.
@@ -183,22 +184,7 @@ class OthorgonalCollocation:
         else:
             return cas.Function('polyEval', [t], [result])
 
-class ForwardEuler():
-    c = np.array([0])
-    A = np.array([[0]])
-    b = np.array([1])
-    d = c.shape[0]
-
-
-class Lobatto3A_Order4:
-    # (trapazoidal rule)
-    c = np.array([0, 0.5, 1])
-    A = np.array([[0, 0, 0],[5/24,1/3,-1/24], [1/6, 2/3, 1/6]])
-    b = np.array([1/6, 2/3, 1/6])
-    d = c.shape[0]
-
-
-def reconstruct_full_from_SAM(nlpoptions: dict, Vopt: ca.tools.struct, output_vals_opt: ca.DM):
+def reconstruct_full_from_SAM(nlpoptions: dict, Vopt: ca.tools.struct, output_vals_opt: ca.DM) -> tuple:
     """
     Reconstruct the full trajectory from the SAM discretization with micro- and macro-integrations.
     This works by interpolating the polynomials for of the algebraic variables (that are the micro-integrations)
@@ -210,7 +196,7 @@ def reconstruct_full_from_SAM(nlpoptions: dict, Vopt: ca.tools.struct, output_va
     :param nlpoptions: the nlp options, e.g. trial.options['nlp']
     :param Vopt: the optimal variables from the SAM discretization
     :param output_vals_opt: the optimal output values from the SAM discretization
-    :return:
+    :return: (V_recon, time_grid_recon, output_recon)
     """
     assert {'x', 'u', 'z', 'coll_var', 'theta'}.issubset(Vopt.keys())
     d_micro = nlpoptions['collocation']['d']
@@ -324,8 +310,22 @@ def reconstruct_full_from_SAM(nlpoptions: dict, Vopt: ca.tools.struct, output_va
 
     return V_reconstruct, time_grid_recon_eval, ca.horzcat(*outputs_reconstructed)
 
-
 def construct_time_grids(nlp_options) -> dict:
+    """
+    Construct the time grids for the direct collocation or multiple shooting discretization.
+    This function constructs the time grids for the states ('x'), controls ('u'), and collocation nodes ('coll'), each
+    'timegrid' is a casadi function that maps the time scaling parameters to the respective time grid.
+
+    Returns a dictionary of casadi functions for
+        - discrete states ('x'),
+        - controls ('u'),
+        - collocation nodes ('coll')
+        - state and collocation nodes ('x_coll')
+
+    :param nlp_options:
+    :return: {'x': cas.Function, 'u': cas.Function, 'coll': cas.Function, 'x_coll': cas.Function}
+    """
+
 
     assert nlp_options['phase_fix'] == 'single_reelout'
     # assert nlp_options['discretization'] == 'direct_collocation'
@@ -405,6 +405,19 @@ def construct_time_grids(nlp_options) -> dict:
 
 
 def construct_time_grids_SAM_reconstruction(nlp_options) -> dict:
+    """
+    Construct the time grids for the RECONSTRUCTED trajectory after the SAM discretization.
+    Returns a dictionary of casadi functions for
+        - discrete states ('x'),
+        - controls ('u'),
+        - collocation nodes ('coll'),
+        - state and collocation nodes ('x_coll')
+
+    :param nlp_options:
+    :return: {'x': cas.Function, 'u': cas.Function, 'coll': cas.Function, 'x_coll': cas.Function}
+    """
+
+
     # assert nlp_options['SAM']['use']
     assert nlp_options['discretization'] == 'direct_collocation'
 
@@ -421,13 +434,10 @@ def construct_time_grids_SAM_reconstruction(nlp_options) -> dict:
     t_f_sym = ca.SX.sym('t_f_sym', (N_regions,1))
     T_regions = t_f_sym / nk * regions_deltans  # the duration of each discretization region
 
-
-
     tx = []
     tu = []
     txcoll = []
     tcoll = []
-    t_local = 0
 
     # function to evaluate the reconstructed time
     # quadrature over the region durations to reconstruct the physical time
@@ -516,11 +526,7 @@ def discretize(nlp_options, model, formulation):
     # discretization setup
     # -----------------------------------------------------------------------------
     nk = nlp_options['n_k']
-
-    # direct_collocation = (nlp_options['discretization'] == 'direct_collocation')
-    # multiple_shooting = (nlp_options['discretization'] == 'multiple_shooting')
-    #
-    # if direct_collocation:
+    assert nlp_options['discretization'] == 'direct_collocation', 'for SAM, we only support direct collocation as'
     d = nlp_options['collocation']['d']
     scheme = nlp_options['collocation']['scheme']
     Collocation = coll_module.Collocation(nk, d, scheme)
@@ -596,11 +602,10 @@ def discretize(nlp_options, model, formulation):
         Integral_constraint_list, Integral_outputs, Collocation, Multiple_shooting, ms_z0, ms_xf,
             ms_vars, ms_params, Outputs_struct, time_grids)
 
-
     # ---------------------------------------------
     # modify the constraints for SAM
     # ---------------------------------------------
-    SAM_cstrs_list = ocp_constraint.OcpConstraintList()
+    SAM_cstrs_list = ocp_constraint.OcpConstraintList()  # create an empty list
     SAM_cstrs_entry_list = []
 
     N_SAM = nlp_options['SAM']['N']
@@ -674,12 +679,12 @@ def discretize(nlp_options, model, formulation):
     X_macro_end = model.variables_dict['x'](V['x_macro', -1])
 
     # START: connect X0_macro and the endpoint of the reelin phase, by replacing the periodicity constraint
-    # reconstruct the periodicty constraint ('remove state e') from constraint
+    # reconstruct the periodicty constraint (remove state 'e') from constraint
     state_start = model.variables_dict['x'](X_macro_start)
     state_end =  model.variables_dict['x'](V['x', -1])
     periodicty_expr = []
     for name in state_start.keys():
-        if name is not 'e':
+        if name != 'e': # don't enforce periodicity on the energy
             periodicty_expr.append(state_start[name] - state_end[name])
 
     ocp_cstr_list.get_constraint_by_name(f'state_periodicity').expr = ca.vertcat(*periodicty_expr)
@@ -719,7 +724,7 @@ def discretize(nlp_options, model, formulation):
 
 def constructPiecewiseCasadiExpression(decisionVariable: ca.SX, edges: List, expressions: List[ca.SX]) -> ca.SX:
     """
-    Construct a piecewise casadi expression from a list of edges and functions for a given decision variable.
+    Construct a piecewise casadi expression from a list of edges and functions for a given scalar decision variable.
     For example, if the decision variable is x and the edges are [0,1,2] and the expressions are [f1(x),f2(x)] then the
     resulting expression is f1(x) if x is in [0,1) and f2(x) if x is in [1,2).
     For values outside, the function will return nan.
@@ -731,10 +736,10 @@ def constructPiecewiseCasadiExpression(decisionVariable: ca.SX, edges: List, exp
     :param expressions: a list of casadi.SX expressions.
     :return:
     """
-    assert type(decisionVariable) == ca.SX, "The decision variable has to be a casadi.SX!"
+    assert type(decisionVariable) is ca.SX, "The decision variable has to be a casadi.SX!"
     assert decisionVariable.shape == (1, 1), "The decision variable has to be a scalar!"
-    assert type(edges) == list, "The edges have to be a list!"
-    assert type(expressions) == list, "The functions have to be a list!"
+    assert type(edges) is list, "The edges have to be a list!"
+    assert type(expressions) is list, "The functions have to be a list!"
     assert len(expressions) > 0, "There has to be at least one function!"
     assert len(edges) == len(expressions) + 1, "The number of edges has to be one more than the number of functions!"
 

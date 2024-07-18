@@ -518,11 +518,12 @@ def find_SAM_regularization(nlp_options: dict, V: cas.struct, model: Model) -> U
     macro_int = OthorgonalCollocation(np.array(cas.collocation_points(d_SAM, nlp_options['SAM']['MaInt_type'])))
 
     # third derivative of the average state
+    DERIVATIVE_T0_REGULARIZE = 2
     V_matrix = cas.horzcat(*V['v_macro_coll'])
     sam_regularizaion_third_deriv_x_average = 0
     for i, c_i in enumerate(macro_int.c):
         # compute the 3rd derivative of the state (2nd derivative of the collocation poly)
-        l_i_dot = casadi.vertcat([l.deriv(d_SAM)(c_i) for l in macro_int.polynomials])
+        l_i_dot = casadi.vertcat([l.deriv(DERIVATIVE_T0_REGULARIZE - 1)(c_i) for l in macro_int.polynomials])
         v_i_dot = V_matrix @ l_i_dot  # the value of the 3rd derivative of the state at the collocation point
 
         # compute the quadrature of the 3rd derivative of the state
@@ -534,26 +535,26 @@ def find_SAM_regularization(nlp_options: dict, V: cas.struct, model: Model) -> U
     Z_matrix = cas.horzcat(*[cas.vertcat(*V['x', SAM_regions[i]]) for i in range(d_SAM)])
     W_z = cas.diag(cas.vertcat(*[weights_state.cat for n in range(len(SAM_regions[0]))]))
     for i, c_i in enumerate(macro_int.c):
-        # compute the 3rd derivative of the state (1st derivative of the collocation poly)
-        l_i_dot = casadi.vertcat([l.deriv(d_SAM + 1)(c_i) for l in macro_int.polynomials])
-        v_i_dot = Z_matrix @ l_i_dot  # the value of the 3rd derivative of the state at the collocation point
+        # compute the 3rd derivative of the polynomial for the algebraic variables
+        l_i_dot = casadi.vertcat([l.deriv(DERIVATIVE_T0_REGULARIZE)(c_i) for l in macro_int.polynomials])
+        z_i_dot = Z_matrix @ l_i_dot  # value of the 3rd derivative of the algebraic variables at the collocation point
 
-        # compute the quadrature of the 3rd derivative of the state
-        sam_regularizaion_third_deriv_z += macro_int.b[i] * v_i_dot.T @ W_z @ v_i_dot
+        # compute the quadrature of the squared 3rd derivative of the algebraic variables
+        sam_regularizaion_third_deriv_z += macro_int.b[i] * z_i_dot.T @ W_z @ z_i_dot
 
     # first derivative of the state
     sam_regularization_first_deriv_x_average = 0
     for i, c_i in enumerate(macro_int.c):
         sam_regularization_first_deriv_x_average += macro_int.b[i] * V['v_macro_coll', i].T @ W_x @ V['v_macro_coll', i]
 
-    # similar durations
+    # similar durations, TODO: also do this using the polynomials
     sam_regularization_similar_durations = 0
     if V['theta', 't_f'].shape[0] >= 3:  # (more than 1 micro-integration)
         res_T = V['theta', 't_f', 0:-2] - V['theta', 't_f', 1:-1]
         sam_regularization_similar_durations += res_T.T @ res_T
 
     return (regularization_dict['AverageStateFirstDeriv'] * sam_regularization_first_deriv_x_average
-            + regularization_dict['AverageStateFirstDeriv'] * sam_regularizaion_third_deriv_x_average
+            + regularization_dict['AverageStateThirdDeriv'] * sam_regularizaion_third_deriv_x_average
             + regularization_dict['AverageAlgebraicsThirdDeriv'] * sam_regularizaion_third_deriv_z
             + regularization_dict['SimilarMicroIntegrationDuration'] * sam_regularization_similar_durations)
 

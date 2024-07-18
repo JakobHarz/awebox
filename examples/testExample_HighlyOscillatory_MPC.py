@@ -16,7 +16,7 @@ import awebox as awe
 from ampyx_ap2_settings import set_ampyx_ap2_settings
 import matplotlib.pyplot as plt
 import numpy as np
-from awebox.ocp.discretization_averageModel import construct_time_grids_SAM, construct_time_grids_SAM_reconstruction, \
+from awebox.ocp.discretization_averageModel import eval_time_grids_SAM, construct_time_grids_SAM_reconstruction, \
     reconstruct_full_from_SAM
 
 DUAL_KITES = True
@@ -52,15 +52,16 @@ options['user_options.wind.u_ref'] = 10.
 # options['nlp.phase_fix_reelout'] = 0.7
 options['nlp.useAverageModel'] = True
 options['nlp.cost.output_quadrature'] = False  # use enery as a state, works better with SAM
-options['nlp.SAM_MaInt_type'] = 'radau'
-options['nlp.N_SAM'] = 20 # the number of full cycles approximated
+options['nlp.MaInt_type'] = 'radau'
+options['nlp.N_SAM'] = 3 # the number of full cycles approximated
 options['nlp.d_SAM'] = 4 # the number of cycles actually computed
 options['nlp.SAM_ADAtype'] = 'BD'  # the approximation scheme
-options['nlp.SAM_Regularization'] = 1.0  # regularization parameter
+options['nlp.SAM_Regularization'] = 200  # regularization parameter
+# options['nlp.SAM_Regularization'] = 1E-1 * options['nlp.N_SAM']  # regularization parameter
 
 
 options['user_options.trajectory.lift_mode.windings'] = options['nlp.d_SAM'] + 1
-n_k = 20 * options['user_options.trajectory.lift_mode.windings']
+n_k = 15 * options['user_options.trajectory.lift_mode.windings']
 options['nlp.n_k'] = n_k
 
 # needed for correct initial tracking phase
@@ -133,19 +134,21 @@ d = trial.nlp.time_grids['x'](Vopt['theta', 't_f']).full().flatten()
 regions_indeces = calculate_SAM_regions(trial.nlp.options)
 strobo_indeces = [region_indeces[0] for region_indeces in regions_indeces[1:]]
 model = trial.model
-macroIntegrator = OthorgonalCollocation(np.array(ca.collocation_points(d_SAM, options['nlp.SAM_MaInt_type'])))
+macroIntegrator = OthorgonalCollocation(np.array(ca.collocation_points(d_SAM, options['nlp.MaInt_type'])))
 
 t_f_opt = Vopt['theta', 't_f']
 
 # %% Reconstuct into large V structure of the FULL trajectory
-time_grid_SAM = construct_time_grids_SAM(trial.nlp.options)
-time_grid_SAM_x = time_grid_SAM['x'](Vopt['theta', 't_f']).full().flatten()
+time_grid_SAM = eval_time_grids_SAM(trial.nlp.options,Vopt['theta', 't_f'])
+time_grid_SAM_x = time_grid_SAM['x']
 
-V_reconstruct, time_grid_recon_eval, output_vals_reconstructed = reconstruct_full_from_SAM(trial,Vopt)
+V_reconstruct, time_grid_recon_eval, output_vals_reconstructed = reconstruct_full_from_SAM(trial.nlp.options, Vopt,
+                                                                                           trial.solution_dict['output_vals'])
+
 
 # %% Fake the AWEbox into recalibrating its visualz with the reconstructed trajectory
-trial.options['nlp']['flag_SAM_reconstruction'] = True
-trial.options['nlp']['useAverageModel'] = False
+trial.options['nlp']['SAM']['flag_SAM_reconstruction'] = True
+trial.options['nlp']['SAM']['use'] = False
 n_k_total = len(V_reconstruct['x']) - 1
 trial.visualization.plot_dict['n_k'] = n_k_total
 # print(calculate_kdx_SAM_reconstruction(trial.options['nlp'], V_reconstruct,30))
@@ -155,6 +158,13 @@ trial.optimization.V_opt = V_reconstruct
 
 trial.visualization.recalibrate(V_reconstruct, trial.visualization.plot_dict, output_vals_reconstructed, trial.optimization.integral_outputs_final, trial.options, time_grid_recon_eval,solution_dict['cost'], 'fake', V_reconstruct, trial.optimization.global_outputs_opt)
 
+# find the duration of the regions
+n_k = trial.nlp.options['n_k']
+regions_indeces = calculate_SAM_regions(trial.nlp.options)
+regions_deltans = np.array([region.__len__() for region in regions_indeces])
+N_regions = trial.nlp.options['SAM']['d'] + 1
+assert len(regions_indeces) == N_regions
+T_regions = (Vopt['theta', 't_f'] / n_k * regions_deltans).full().flatten()
 
 # %% MPC SIMULATION
 import copy
@@ -163,12 +173,13 @@ import copy
 
 T_opt = float(time_grid_recon_eval['x'][-1])
 
+
 # set-up closed-loop simulation
-T_mpc = 2 # seconds
+T_mpc = 1.5 # seconds
 N_mpc = 50 # MPC horizon
 
 # T_sim = 3 # seconds
-T_sim = T_opt # seconds
+T_sim = T_opt - T_regions[-1] # seconds
 ts = T_mpc/N_mpc # sampling time
 N_sim = int(T_sim/ts)  # closed-loop simulation steps
 #SAM reconstruct options
@@ -353,7 +364,7 @@ def sim_to_df(sim):
     return df
 
 def interpolate_trajectory(trial,V,N:int, Tend: float) -> pandas.DataFrame:
-    assert trial.options['nlp']['flag_SAM_reconstruction']
+    assert trial.options['nlp']['SAM']['flag_SAM_reconstruction']
     df = pandas.DataFrame()
     interpolator = trial.nlp.Collocation.build_interpolator(trial.nlp.options, V)
     t_grid = np.linspace(0, Tend, N)
@@ -369,7 +380,7 @@ def interpolate_trajectory(trial,V,N:int, Tend: float) -> pandas.DataFrame:
     return df
 
 def interpolate_SAM_trajectory(trial,V,N:int) -> pandas.DataFrame:
-    assert trial.options['nlp']['useAverageModel'] == True
+    assert trial.options['nlp']['SAM']['use'] == True
     df = pandas.DataFrame()
     interpolator = trial.nlp.Collocation.build_interpolator(trial.nlp.options, V)
 
@@ -394,7 +405,7 @@ def interpolate_SAM_trajectory(trial,V,N:int) -> pandas.DataFrame:
     n_k = trial.nlp.options['n_k']
     regions_indeces = calculate_SAM_regions(trial.nlp.options)
     regions_deltans = np.array([region.__len__() for region in regions_indeces])
-    N_regions = trial.nlp.options['d_SAM'] + 2
+    N_regions = trial.nlp.options['d_SAM'] + 1
     assert len(regions_indeces) == N_regions
     T_regions = (V['theta','t_f'] / n_k * regions_deltans).full().flatten()  # the duration of each discretization region
     T_end_SAM = np.sum(T_regions)
@@ -419,8 +430,8 @@ def interpolate_SAM_trajectory(trial,V,N:int) -> pandas.DataFrame:
 
     # interpolate the average polynomials
     from awebox.ocp.discretization_averageModel import OthorgonalCollocation
-    d_SAM = trial.nlp.options['d_SAM']
-    coll_points = np.array(ca.collocation_points(d_SAM,trial.nlp.options['SAM_MaInt_type']))
+    d_SAM = trial.nlp.options['SAM']['d']
+    coll_points = np.array(ca.collocation_points(d_SAM,trial.nlp.options['SAM']['MaInt_type']))
     interpolator_average_integrator = OthorgonalCollocation(coll_points)
     interpolator_average = interpolator_average_integrator.getPolyEvalFunction(shape=trial.model.variables_dict['x'].cat.shape, includeZero=True)
     tau_average = np.linspace(0, 1, N)
@@ -447,13 +458,13 @@ df_sim = sim_to_df(closed_loop_sim)
 df_sim.to_csv(f'_export/MPC/dualKiteLongTrajectory_N_{options["nlp.N_SAM"]}_MPC.csv', index=False)
 
 
-trial.options['nlp']['flag_SAM_reconstruction'] = False
-trial.options['nlp']['useAverageModel'] = True
-df_SAM = interpolate_SAM_trajectory(trial,Vopt, 2000)
+trial.options['nlp']['SAM']['flag_SAM_reconstruction'] = False
+trial.options['nlp']['SAM']['use'] = True
+df_SAM = interpolate_SAM_trajectory(trial,Vopt, 3000)
 df_SAM.to_csv(f'_export/MPC/dualKiteLongTrajectory_N_{options["nlp.N_SAM"]}_SAM.csv', index=False)
 
 
-trial.options['nlp']['flag_SAM_reconstruction'] = True
-trial.options['nlp']['useAverageModel'] = False
-df_reconstruct = interpolate_trajectory(trial,V_reconstruct, 2000, float(time_grid_recon_eval['x'][-1]))
+trial.options['nlp']['SAM']['flag_SAM_reconstruction'] = True
+trial.options['nlp']['SAM']['use'] = False
+df_reconstruct = interpolate_trajectory(trial,V_reconstruct, 3000, float(time_grid_recon_eval['x'][-1]))
 df_reconstruct.to_csv(f'_export/MPC/dualKiteLongTrajectory_N_{options["nlp.N_SAM"]}_REC.csv', index=False)

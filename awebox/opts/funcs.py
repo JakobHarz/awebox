@@ -22,6 +22,7 @@
 #    Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
 #
 #
+import logging
 
 import numpy as np
 import copy
@@ -34,11 +35,21 @@ import awebox.tools.print_operations as print_op
 def build_options_dict(options, help_options, architecture):
 
     # single out user options
+
     user_options = options['user_options']
 
     # check for unsupported settings
     if user_options['trajectory']['type'] in ['nominal_landing', 'compromised_landing', 'transition']:
         awelogger.logger.error('Error: ' + user_options['trajectory']['type'] + ' is not supported for current release. Build the newest casADi from source and check out the awebox develop branch to use nominal_landing, compromised_landing or transition.')
+
+
+    # check for SAM options
+    # (actually this is the wrong place, but it is easier to just make sure that the options
+    # dictionary is complete/correct instead of creating a new options tree)
+    if options['nlp']['SAM']['use']:
+        logging.info('SAM options detected. Enforcing SAM options.')
+        enforce_SAM_options(options)
+
 
     # initialize additional options tree
     options_tree = []
@@ -156,6 +167,9 @@ def share_trajectory_type(options, options_tree=[]):
 
 def build_nlp_options(options, help_options, user_options, options_tree, architecture):
 
+    # SAM: check some stuff
+
+
     ### switch off phase fixing for landing/transition trajectories
     if user_options['trajectory']['type'] in ['nominal_landing', 'compromised_landing', 'transition', 'mpc']:
         phase_fix = False
@@ -164,6 +178,7 @@ def build_nlp_options(options, help_options, user_options, options_tree, archite
             phase_fix = user_options['trajectory']['lift_mode']['phase_fix']
         else:
             phase_fix = False
+
     options_tree.append(('nlp', None, None, 'phase_fix', phase_fix,  ('lift-mode phase fix', (True, False)),'x'))
     options_tree.append(('nlp', None, None, 'system_type', user_options['trajectory']['system_type'],  ('AWE system type', ('lift_mode', 'drag_mode')),'x'))
 
@@ -224,9 +239,37 @@ def build_nlp_options(options, help_options, user_options, options_tree, archite
     #     options_tree.append(('params', 'model_bounds', None, 'P_max_ub', 0.0, ('????', None), 'x'))
     #     options_tree.append(('model', 'system_bounds', 'theta', 'P_max', [power, power], ('????', None), 'x'))
 
+
+
     return options_tree, phase_fix
 
 
+def enforce_SAM_options(options: dict):
+    assert (options['user_options']['trajectory']['type'] not in ['launch', 'mpc']), 'Incompatible with SAM: trajectory type ' + options['user_options']['trajectory']['type']
+    assert options['nlp']['cost']['output_quadrature'] == False, 'SAM: use enery as a state, works better with SAM'
+    assert options['nlp']['discretization'] == 'direct_collocation', 'SAM: only direct collocation is supported'
+    assert options['nlp']['collocation']['u_param'] == 'zoh', 'SAM: only zoh is supported'
+
+    assert options['nlp']['SAM']['N'] > 3
+    assert options['nlp']['SAM']['d'] > 2
+
+    # Number of Windings
+    windings = options['nlp']['SAM']['d'] + 1
+    phase_fix_reelout = (windings - 1) / windings
+
+    # build some c
+
+    options['user_options']['trajectory']['lift_mode']['windings'] = options['nlp']['SAM']['d'] + 1
+    options['nlp']['phase_fix_reelout'] = phase_fix_reelout
+    # options['nlp']['collocation']['u_param'] = 'zoh'
+    options['user_options']['trajectory']['lift_mode']['phase_fix'] = 'single_reelout'
+
+
+    # options['user_options.trajectory.lift_mode.windings'] = options['nlp.SAM.d'] + 1
+    # options['nlp.phase_fix_reelout'] = (options['user_options.trajectory.lift_mode.windings'] - 1) / options[
+    #     'user_options.trajectory.lift_mode.windings']
+    # options['nlp.collocation.u_param'] = 'zoh'
+    # options['user_options.trajectory.lift_mode.phase_fix'] = 'single_reelout'
 
 def build_solver_options(options, help_options, user_options, options_tree, architecture, fixed_params, phase_fix):
 
@@ -300,6 +343,8 @@ def build_solver_options(options, help_options, user_options, options_tree, arch
 
 
 def build_formulation_options(options, help_options, user_options, options_tree, architecture):
+
+    # TODO (Jochem and Jakob Jul 2024): Check if this is still needed
 
     options_tree.append(('formulation', 'landing', None, 'xi_0_initial', user_options['trajectory']['compromised_landing']['xi_0_initial'], ('starting position on initial trajectory between 0 and 1', None),'x'))
     options_tree.append(('formulation', 'compromised_landing', None, 'emergency_scenario', user_options['trajectory']['compromised_landing']['emergency_scenario'], ('???', None),'x'))

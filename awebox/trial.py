@@ -75,7 +75,7 @@ class Trial(object):
             self.__formulation    = formulation.Formulation()
             self.__nlp            = nlp.NLP()
             self.__optimization   = optimization.Optimization()
-            self.__visualization  = visualization.VisualiationSAM() if self.__options['nlp']['SAM']['use'] else visualization.Visualization()
+            self.__visualization  = visualization.VisualizationSAM() if self.__options['nlp']['SAM']['use'] else visualization.Visualization()
             # self.__visualization  = visualization.Visualization()
             self.__quality        = quality.Quality()
             self.__name           = name    #todo: names used as unique identifiers in sweep. smart?
