@@ -28,26 +28,38 @@ options['user_options.wind.model'] = 'power'
 options['user_options.wind.u_ref'] = 10.
 
 # SAM OPTIONS
-options['nlp.useAverageModel'] = True
+options['nlp.SAM.use'] = True
 options['nlp.cost.output_quadrature'] = False  # use enery as a state, works better with SAM
-options['nlp.MaInt_type'] = 'radau'
-options['nlp.N_SAM'] = 20 # the number of full cycles approximated
-options['nlp.d_SAM'] = 4 # the number of cycles actually computed
-options['nlp.SAM_ADAtype'] = 'BD'  # the approximation scheme
-options['nlp.SAM_Regularization'] = 1E-1 * options['nlp.N_SAM'] # regularization parameter
+options['nlp.cost.output_quadrature'] = False  # use enery as a state, works better with SAM
+options['nlp.SAM.MaInt_type'] = 'legendre'
+options['nlp.SAM.N'] = 20 # the number of full cycles approximated
+options['nlp.SAM.d'] = 3 # the number of cycles actually computed
+options['nlp.SAM.ADAtype'] = 'CD'  # the approximation scheme
+
+# SAM Regularization
+single_regularization_param = 1E-4
+options['nlp.SAM.Regularization.AverageStateFirstDeriv'] = 0*single_regularization_param
+options['nlp.SAM.Regularization.AverageStateThirdDeriv'] = 1*single_regularization_param
+options['nlp.SAM.Regularization.AverageAlgebraicsThirdDeriv'] = 0*single_regularization_param
+options['nlp.SAM.Regularization.SimilarMicroIntegrationDuration'] = 1E-1*single_regularization_param
 
 
-options['user_options.trajectory.lift_mode.windings'] = options['nlp.d_SAM'] + 1
+# smooth the reel in phase (this increases convergence speed x10)
+options['solver.cost.beta.0'] = 8e0
+options['solver.cost.u_regularisation.0'] = 1e0
+
+
+options['user_options.trajectory.lift_mode.windings'] = options['nlp.SAM.d'] + 1
 n_k = 15 * options['user_options.trajectory.lift_mode.windings']
 options['nlp.n_k'] = n_k
 
 # needed for correct initial tracking phase
-options['nlp.phase_fix_reelout'] = (options['user_options.trajectory.lift_mode.windings'] - 1) / options[
-    'user_options.trajectory.lift_mode.windings']
+# options['nlp.phase_fix_reelout'] = (options['user_options.trajectory.lift_mode.windings'] - 1) / options[
+#     'user_options.trajectory.lift_mode.windings']
 options['solver.initialization.groundspeed'] = 30.0
 # options['nlp.phase_fix_reelout'] = 0.7
 
-options['model.system_bounds.theta.t_f'] = [5, 10 * options['nlp.N_SAM']]  # [s]
+options['model.system_bounds.theta.t_f'] = [5, 10 * options['nlp.SAM.N']]  # [s]
 
 options['nlp.collocation.u_param'] = 'zoh'
 options['user_options.trajectory.lift_mode.phase_fix'] = 'single_reelout'
@@ -98,7 +110,7 @@ def interpolate_trajectory(trial,V,N:int, Tend: float) -> pandas.DataFrame:
     return df
 
 def interpolate_SAM_trajectory(trial,V,N:int) -> pandas.DataFrame:
-    assert trial.options['nlp']['SAM']['use'] == True
+    assert trial.options['nlp']['SAM']['use']
     df = pandas.DataFrame()
     interpolator = trial.nlp.Collocation.build_interpolator(trial.nlp.options, V)
 
@@ -171,6 +183,63 @@ def interpolate_SAM_trajectory(trial,V,N:int) -> pandas.DataFrame:
     df['t_average'] = t_grid_average
 
     return df
+
+
+from awebox.viz.visualization import VisualizationSAM
+def exportSAMtoDf(visualization: VisualizationSAM) -> pandas.DataFrame:
+    assert trial.options['nlp']['SAM']['use']
+    df = pandas.DataFrame()
+
+    # find the duration of the regions
+    n_k = trial.nlp.options['n_k']
+    regions_indeces = calculate_SAM_regions(trial.nlp.options)
+    regions_deltans = np.array([region.__len__() for region in regions_indeces])
+    N_regions = trial.nlp.options['SAM']['d'] + 1
+    assert len(regions_indeces) == N_regions
+    T_regions = (V[
+                     'theta', 't_f'] / n_k * regions_deltans).full().flatten()  # the duration of each discretization region
+    T_end_SAM = np.sum(T_regions)
+    t_grid_SAM = np.linspace(0, T_end_SAM, N)  # in the AWEBOX time grid, not correct
+    df['regionIndex'] = visualization.plot_dict_SAM['SAM_regions_ip']
+
+    # fill time
+    values_time = interpolator_time(t_grid_SAM, 't', 0, 'x').full().flatten()
+    df['t'] = values_time
+
+    for entry_type in ['x', 'u']:
+        for entry_name in trial.model.variables_dict[entry_type].keys():
+            for index_dim in range(trial.model.variables_dict[entry_type][entry_name].shape[0]):
+                # we evaluate on the AWEBox time grid, not the SAM time grid!
+                values = interpolator(t_grid_SAM, entry_name, index_dim, entry_type).full().flatten()
+
+                name = entry_type + '_' + entry_name + '_' + str(index_dim)
+                df[name] = values
+
+    # interpolate the average polynomials
+    from awebox.ocp.discretization_averageModel import OthorgonalCollocation
+    d_SAM = trial.nlp.options['SAM']['d']
+    coll_points = np.array(ca.collocation_points(d_SAM, trial.nlp.options['SAM']['MaInt_type']))
+    interpolator_average_integrator = OthorgonalCollocation(coll_points)
+    interpolator_average = interpolator_average_integrator.getPolyEvalFunction(
+        shape=trial.model.variables_dict['x'].cat.shape, includeZero=True)
+    tau_average = np.linspace(0, 1, N)
+
+    # compute the average polynomials and fill the dataframe
+    X_average = interpolator_average.map(tau_average.size)(tau_average, V['x_macro', 0],
+                                                           *[V['x_macro_coll', i] for i in range(d_SAM)])
+    X_average = trial.model.variables_dict['x'].repeated(X_average)
+    for entry_name in trial.model.variables_dict['x'].keys():
+        for index_dim in range(trial.model.variables_dict['x'][entry_name].shape[0]):
+            # we evaluate on the AWEBox time grid, not the SAM time grid!
+            values = ca.vertcat(*X_average[:, entry_name, index_dim]).full().flatten()
+
+            name = 'X' + '_' + entry_name + '_' + str(index_dim)
+            df[name] = values
+
+    # construct the time grid for the average polynomials
+    Tend = float(time_grid_SAM['x'](V['theta', 't_f'])[-1])
+    t_grid_average = np.linspace(T_regions[0], Tend - T_regions[-1], N)
+    df['t_average'] = t_grid_average
 
 # EXPORT
 # basePath = '_export/varyN'

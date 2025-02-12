@@ -22,6 +22,11 @@ from awebox.ocp.discretization_averageModel import eval_time_grids_SAM, construc
     reconstruct_full_from_SAM, originalTimeToSAMTime
 from awebox.viz.visualization import build_interpolate_functions_full_solution, dict_from_repeated_struct
 
+# set the logger level to 'DEBUG' to see IPOPT output
+from awebox.logger.logger import Logger as awelogger
+awelogger.logger.setLevel(10)
+
+
 DUAL_KITES = False
 
 # indicate desired system architecture
@@ -51,29 +56,32 @@ options['user_options.wind.u_ref'] = 10.
 
 # indicate numerical nlp details
 # here: nlp discretization, with a zero-order-hold control parametrization, and a simple phase-fixing routine. also, specify a linear solver to perform the Newton-steps within ipopt.
-options['model.system_bounds.x.l_t'] = [10.0, 1000.0]  # [m]
+options['model.system_bounds.x.l_t'] = [10.0, 3000.0]  # [m]
 
 
 options['nlp.collocation.u_param'] = 'zoh'
 options['nlp.SAM.use'] = True
 options['nlp.cost.output_quadrature'] = False  # use enery as a state, works better with SAM
-options['nlp.SAM.MaInt_type'] = 'radau'
+options['nlp.SAM.MaInt_type'] = 'legendre'
 options['nlp.SAM.N'] = 20 # the number of full cycles approximated
 options['nlp.SAM.d'] = 5 # the number of cycles actually computed
-options['nlp.SAM.ADAtype'] = 'BD'  # the approximation scheme
+options['nlp.SAM.ADAtype'] = 'CD'  # the approximation scheme
 
 # SAM Regularization
-options['nlp.SAM.Regularization.AverageStateFirstDeriv'] = 1E-2
-options['nlp.SAM.Regularization.AverageStateThirdDeriv'] = 1E-5
-options['nlp.SAM.Regularization.AverageAlgebraicsThirdDeriv'] = 1E-5
-options['nlp.SAM.Regularization.SimilarMicroIntegrationDuration'] = 1E1
+single_regularization_param = 1E-4
+options['nlp.SAM.Regularization.AverageStateFirstDeriv'] = 0*single_regularization_param
+options['nlp.SAM.Regularization.AverageStateThirdDeriv'] = 1*single_regularization_param
+options['nlp.SAM.Regularization.AverageAlgebraicsThirdDeriv'] = 0*single_regularization_param
+options['nlp.SAM.Regularization.SimilarMicroIntegrationDuration'] = 1E-1*single_regularization_param
+
+
 
 # smooth the reel in phase (this increases convergence speed x10)
 options['solver.cost.beta.0'] = 8e0
 options['solver.cost.u_regularisation.0'] = 1e0
 
 # Number of discretization points
-n_k = 15 * (options['nlp.SAM.d'] + 1)
+n_k = 20 * (options['nlp.SAM.d'] + 1)
 options['nlp.n_k'] = n_k
 
 if DUAL_KITES:
@@ -83,7 +91,7 @@ else:
 
 options['solver.linear_solver'] = 'ma27'
 
-options['visualization.cosmetics.interpolation.N'] = 2000  # high plotting resolution
+options['visualization.cosmetics.interpolation.N'] = 1000  # high plotting resolution
 
 # build and optimize the NLP (trial)
 trial = awe.Trial(options, 'DualKitesLongHorizon')
@@ -335,5 +343,5 @@ ax.view_init(elev=23., azim=-45)
 
 # plt.legend()
 plt.tight_layout()
-# plt.savefig('3DReelout.pdf')
+plt.savefig('3DReelout.pdf')
 plt.show()

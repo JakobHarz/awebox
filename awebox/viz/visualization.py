@@ -330,12 +330,23 @@ class VisualizationSAM(Visualization):
         plot_dict['z'] = z_ip_dict
         plot_dict['x'] = x_ip_dict
         plot_dict['u'] = u_ip_dict
+
+
         plot_dict['outputs'] = y_ip_dict
         plot_dict['output_vals'] = [output_vals_reconstructed,output_vals_reconstructed] # TODO: this is not the intended functionality
         plot_dict['time_grids'] = time_grid_reconstructed
         plot_dict['time_grids']['ip'] = t_ip
         plot_dict['global_outputs'] = global_outputs
         plot_dict['V_plot'] = V_reconstructed
+
+        # fill theta
+        plot_dict['theta'] = {}
+        variables_dict = plot_dict['variables']
+        for name in list(struct_op.subkeys(variables_dict, 'theta')):
+            plot_dict['theta'][name] = plot_dict['V_plot']['theta', name].full()[0][0]
+
+
+
         plot_dict['integral_outputs_final'] = integral_outputs_final
         plot_dict['power_and_performance'] = diagnostics.compute_power_and_performance(plot_dict)
 

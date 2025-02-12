@@ -117,6 +117,18 @@ def get_dynamics(options, atmos, wind, architecture, system_variables, system_gc
         name_in_u = name in system_variables['SI']['u'].keys()
 
         if name_in_x:
+            # epsilon = 1E-6
+            # if name == 'dq10':
+            #     dl_t = system_variables['scaled']['x','dl_t']
+            #     l = system_variables['scaled']['x','l_t']
+            #     q = system_variables['scaled']['x','q10']
+            #
+            #     trivial_dyn = cas.vertcat(
+            #         *[system_variables['scaled']['xdot', 'dq10'] - system_variables['scaled']['x', 'dq10'] + (1 - epsilon)*dl_t*q/l])
+            # elif name == 'dl_t':
+            #     trivial_dyn = cas.vertcat(
+            #         *[system_variables['scaled']['xdot', 'dl_t'] - epsilon*system_variables['scaled']['x', 'dl_t']])
+            # else:
             trivial_dyn = cas.vertcat(*[system_variables['scaled']['xdot', name] - system_variables['scaled']['x', name]])
         elif name_in_u:
             trivial_dyn = cas.vertcat(*[system_variables['scaled']['xdot', name] - system_variables['scaled']['u', name]])
