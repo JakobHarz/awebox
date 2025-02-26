@@ -808,9 +808,9 @@ def recalibrate_visualization(V_plot, plot_dict, output_vals, integral_outputs_f
     plot_dict['mazim'] = np.max([plot_dict['max_x'], plot_dict['max_y'], plot_dict['max_z']])
     plot_dict['scale_power'] = 1.  # e-3
     try:
-        plot_dict['scale_axes'] = np.float(V_plot['x', 0, 'l_t'])
+        plot_dict['scale_axes'] = float(V_plot['x', 0, 'l_t'])
     except:
-        plot_dict['scale_axes'] = np.float(V_plot['theta', 'l_t'])
+        plot_dict['scale_axes'] = float(V_plot['theta', 'l_t'])
 
     dashes = []
     for ldx in range(20):
