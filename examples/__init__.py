@@ -23,10 +23,10 @@
 #
 #
 # Import main interface classes
-from .sweep import Sweep
-from .trial import Trial
-from .opts.options import Options
-from .opts.kite_data import ampyx_data, boeing747_data, bubbledancer_data
+from awebox.sweep import Sweep
+from awebox.trial import Trial
+from awebox.opts.options import Options
+from awebox.opts.kite_data import ampyx_data, boeing747_data, bubbledancer_data
 
 # Visualization classes
-from .viz.visualization import Visualization
+from awebox.viz.visualization import Visualization

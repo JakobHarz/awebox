@@ -274,7 +274,7 @@ def find_homotopy_parameter_costs(component_costs, V, P):
     return component_costs
 
 
-def find_time_cost(nlp_options, V, P):
+def find_time_ref_cost(nlp_options, V, P):
 
     time_period = ocp_outputs.find_time_period(nlp_options, V)
     tf_init = ocp_outputs.find_time_period(nlp_options, P.prefix['p', 'ref'])
@@ -283,6 +283,11 @@ def find_time_cost(nlp_options, V, P):
 
     return time_cost
 
+
+def find_time_wear_cost(nlp_options, V, P):
+    """ Cost to enforce longer cycle times"""
+    time_period = ocp_outputs.find_time_period(nlp_options, V)
+    return nlp_options['cost']['t_f_wear']*1/time_period
 
 def find_power_cost(nlp_options, model, V, P, Integral_outputs):
 
@@ -415,6 +420,7 @@ def find_objective(component_costs, V, nlp_options):
 
     tracking_problem_cost = component_costs['tracking_problem_cost']
     power_problem_cost = component_costs['power_problem_cost']
+    time_wear_cost = component_costs['time_wear_cost']
     nominal_landing_problem_cost = component_costs['nominal_landing_cost']
     transition_problem_cost = component_costs['tracking_problem_cost']
     general_problem_cost = component_costs['general_problem_cost']
@@ -431,6 +437,7 @@ def find_objective(component_costs, V, nlp_options):
     if trajectory_type == 'power_cycle':
         objective = V['phi', 'psi'] * tracking_problem_cost + \
                     (1. - V['phi', 'psi']) * power_problem_cost + \
+                    (1. - V['phi', 'psi']) * time_wear_cost + \
                     general_problem_cost + \
                     homotopy_cost + \
                     SAM_regularization
@@ -457,7 +464,8 @@ def get_component_cost_dictionary(nlp_options, V, P, variables, parameters, xdot
 
     component_costs = find_homotopy_parameter_costs(component_costs, V, P)
 
-    component_costs['time_cost'] = find_time_cost(nlp_options, V, P)
+    component_costs['time_ref_cost'] = find_time_ref_cost(nlp_options, V, P)
+    component_costs['time_wear_cost'] = find_time_wear_cost(nlp_options, V, P)
     component_costs['power_cost'] = find_power_cost(nlp_options, model, V, P, Integral_outputs)
     component_costs['nominal_landing_cost'] = find_nominal_landing_problem_cost(nlp_options, V, P, variables)
     component_costs['transition_cost'] = find_transition_problem_cost(component_costs, P)

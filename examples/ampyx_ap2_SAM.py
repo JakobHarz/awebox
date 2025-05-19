@@ -39,13 +39,11 @@ options['user_options.trajectory.lift_mode.phase_fix'] = 'single_reelout'
 # options['user_options.trajectory.type'] = 'power_cycle'
 # options['user_options.trajectory.system_type'] = 'lift_mode'
 
-#
-# # indicate desired environment
-# # here: wind velocity profile according to power-law
-# options['params.wind.z_ref'] = 100.0
-# options['params.wind.power_wind.exp_ref'] = 0.15
-# options['user_options.wind.model'] = 'power'
-# options['user_options.wind.u_ref'] = 10.
+# options['params.tether.cd'] = 0
+# options['user_options.kite_standard.aero_validity.beta_max_deg'] = 10.
+# options['user_options.kite_standard.aero_validity.beta_min_deg'] = -10.
+omega_bound = 30.0 * np.pi / 180.0
+options['model.system_bounds.x.omega'] = [np.array(3 * [-omega_bound]), np.array(3 * [omega_bound])]
 
 # larger kite?
 # bref = options['user_options.kite_standard']['geometry']['b_ref']
@@ -60,15 +58,8 @@ options['user_options.trajectory.lift_mode.phase_fix'] = 'single_reelout'
 # options['user_options.kite_standard']['geometry']['m_k'] = mref * (b / bref) ** kappa
 # options['user_options.kite_standard']['geometry']['j'] = jref * (b / bref) ** (kappa + 2)
 # options['user_options.trajectory.fixed_params'] = {} # the tether diameter is fixed in the AmpyxAP2 problem, we free it again
-# # options['user_options.trajectory.fixed_params'] = {'diam_t': 8e-3}
+# options['user_options.trajectory.fixed_params'] = {'diam_t':2E-3} # the tether diameter is fixed in the AmpyxAP2 problem, we free it again
 
-# print the just set options:
-# print(f"b_ref:{options['user_options.kite_standard']['geometry']['b_ref']}")
-# print(f"s_ref:{options['user_options.kite_standard']['geometry']['s_ref']}")
-# print(f"c_ref:{options['user_options.kite_standard']['geometry']['c_ref']}")
-# print(f"m_k:{options['user_options.kite_standard']['geometry']['m_k']}")
-# print(f"j:{options['user_options.kite_standard']['geometry']['j']}")
-# print(f"diam_t:{options['user_options.trajectory.fixed_params']['diam_t']}")
 
 # indicate numerical nlp details
 # here: nlp discretization, with a zero-order-hold control parametrization, and a simple phase-fixing routine. also, specify a linear solver to perform the Newton-steps within ipopt.
@@ -81,7 +72,7 @@ options['model.integration.method'] = 'constraints'  # use enery as a state, wor
 
 # indicate numerical nlp details
 options['nlp.SAM.use'] = True
-options['nlp.SAM.N'] = 5 # the number of full cycles approximated
+options['nlp.SAM.N'] = 4 # the number of full cycles approximated
 options['nlp.SAM.d'] = 3 # the number of cycles actually computed
 
 # SAM Regularization
@@ -92,23 +83,20 @@ options['nlp.SAM.Regularization.AverageAlgebraicsThirdDeriv'] = 0*single_regular
 options['nlp.SAM.Regularization.SimilarMicroIntegrationDuration'] = 1E-2*single_regularization_param
 
 # Number of discretization points
-n_k = 15 * (options['nlp.SAM.d']) * 2
+n_k = 20 * (options['nlp.SAM.d']) * 2
 options['nlp.n_k'] = n_k
 
 # initialization
-# options['solver.initialization.l_t'] = 200.
+# options['solver.initialization.l_t'] = 100.
 
 # model bounds
-# options['model.system_bounds.x.dl_t'] = [-50.0, 20.0]  # [m/s]=
-# options['model.system_bounds.x.l_t'] = [10.0, 2500.0]  # [m]
-# options['model.system_bounds.x.q'] = [np.array([0, -np.inf, 10.0]), np.array([np.inf, np.inf, np.inf])]  # [m]
-if DUAL_KITES:
-    options['model.system_bounds.theta.t_f'] = [5, 10 * options['nlp.SAM.N']]  # [s]
-else:
-    options['model.system_bounds.theta.t_f'] = [50, 150 + options['nlp.SAM.N'] * 30]  # [s]
-
-
-
+options['model.system_bounds.x.dl_t'] = [-15.0, 20.0]  # [m/s]=
+options['model.system_bounds.x.l_t'] = [10.0, 500.0 + 100*options[
+    'nlp.SAM.N']]  # [m]
+options['model.system_bounds.x.ddl_t'] = [-2.4, 2.4]  # [m/s^2]
+# options['model.system_bounds.theta.t_f'] = [50, 150 + options['nlp.SAM.N'] * 50]  # [s]
+options['model.system_bounds.theta.t_f'] = [20, 50 + options[
+    'nlp.SAM.N'] * 30]  # [s]
 options['solver.linear_solver'] = 'ma27'
 options['visualization.cosmetics.interpolation.n_points'] = 100* options['nlp.SAM.N'] # high plotting resolution
 
@@ -132,6 +120,7 @@ regions_indeces = calculate_SAM_regions(trial.nlp.options)
 avg_power_REC = plot_dict_SAM['power_and_performance']['avg_power'] / 1e3
 avg_power_SAM = plot_dict_REC['power_and_performance']['avg_power'] / 1e3
 
+# %% Print stuff
 print('======================================')
 print('Average power SAM: {} kW'.format(avg_power_SAM))
 print('Average power REC: {} kW'.format(avg_power_REC))
@@ -147,25 +136,50 @@ for key, value in cost_dict.items():
         print(f'\t {key}:  {val:0.4f}')
 print('======================================')
 
-# %% plot integral states
-if options['model.integration.method'] != 'constraints':
-    import casadi as ca
-    e_opt = ca.vertcat(*trial.solution_dict['integral_output_vals']['opt']['int_out',:,'e']).full().flatten()
-    # betaI_opt = ca.vertcat(*trial.solution_dict['integral_output_vals']['opt']['int_out',:,'beta']).full().flatten()
+# %% plot outputs
+import casadi as ca
+# e_opt = ca.vertcat(*plot_dict_REC['outputs_dict']['performance']['p_current']).full().flatten()
+# betaI_opt = ca.vertcat(*trial.solution_dict['integral_output_vals']['opt']['int_out',:,'beta']).full().flatten()
+dl_t = plot_dict_REC['x']['dl_t'][0]
+l_t = plot_dict_REC['x']['l_t'][0]
+lambda10 = plot_dict_REC['z']['lambda10'][0]
+power = l_t*lambda10*dl_t
+
+# duration of reel_in
+T_reelout = plot_dict_SAM['time_grids']['x'][regions_indeces[-1][0]]
+
+# compute average power
+time_grid_ip = plot_dict_REC['time_grids']['ip']
+powers_reelout = power[time_grid_ip < T_reelout]
+powers_reelin = power[time_grid_ip >= T_reelout]
+power_average_reelout_MW = np.mean(powers_reelout)/1E3
+power_average_reelin_MW = np.mean(powers_reelin)/1E3
 
 
-    plt.figure()
-    plt.plot(plot_dict_SAM['time_grids']['x'],e_opt,'o-')
-    # plt.plot(plot_dict_SAM['time_grids']['x'],betaI_opt,'o-')
-    plt.xlim([0,plot_dict_SAM['time_grids']['x'][-1]])
-    plt.ylim([0,np.max(e_opt)])
-    plt.show()
+
+plt.figure()
+plt.plot(plot_dict_REC['time_grids']['ip'],power/1E3,'-')
+
+# plot average powers
+plt.plot([0, T_reelout], [power_average_reelout_MW, power_average_reelout_MW], 'k--', label='avg reel-out')
+plt.plot([T_reelout, time_grid_ip[-1]], [power_average_reelin_MW, power_average_reelin_MW], 'k--', label='avg reel-in')
+
+plt.xlabel('Time (s)')
+plt.ylabel('Power (kW)')
+plt.grid()
+plt.ylim([-10,30])
+
+plt.show()
+
+# %% Plot more outputs
+# plt.figure('Outputs')
+# power_opt = ca.vertcat(*trial.solution_dict['integral_output_vals']['opt']['int_out',:,'e']).full().flatten()
+
+# %% Plot Invariants
 
 # %% constraints
 trial.plot('constraints')
 
-
-# %% Plot Invariants
 import casadi as ca
 time_plot_REC = plot_dict_REC['time_grids']['ip']
 invariants_REC = plot_dict_REC['outputs']['invariants']
@@ -208,8 +222,8 @@ t_ip = plot_dict_REC['time_grids']['ip']
 
 # decide which states to plot
 kite_name_to_plot = 'q21' if DUAL_KITES else 'q10'
-# plot_states = [kite_name_to_plot, f'd{kite_name_to_plot}', 'l_t', 'dl_t', 'e']
-plot_states = [kite_name_to_plot, f'd{kite_name_to_plot}', 'l_t', 'dl_t']
+plot_states = [kite_name_to_plot, f'd{kite_name_to_plot}', 'l_t', 'dl_t', 'e']
+# plot_states = [kite_name_to_plot, f'd{kite_name_to_plot}', 'l_t', 'dl_t']
 
 for index, state_name in enumerate(plot_states):
     plt.subplot(3, 2, index + 1)
@@ -256,12 +270,12 @@ ax.plot3D(Q_opt[0], Q_opt[1], Q_opt[2], 'C0--', alpha=1)
 q_kite_SAM = plot_dict_SAM['x'][kite_name_to_plot]
 ip_regions_SAM = plot_dict_SAM['SAM_regions_ip']
 
-for region_index, color in zip(np.arange(0, trial.options['nlp']['SAM']['d']+1), [f'C{i}' for i in range(20)]):
-    ax.plot3D(q_kite_SAM[0][np.where(ip_regions_SAM == region_index)],
-              q_kite_SAM[1][np.where(ip_regions_SAM == region_index)],
-              q_kite_SAM[2][np.where(ip_regions_SAM == region_index)]
-              , '-', color=color,
-                  alpha=1, markersize=3)
+# for region_index, color in zip(np.arange(0, trial.options['nlp']['SAM']['d']+1), [f'C{i}' for i in range(20)]):
+#     ax.plot3D(q_kite_SAM[0][np.where(ip_regions_SAM == region_index)],
+#               q_kite_SAM[1][np.where(ip_regions_SAM == region_index)],
+#               q_kite_SAM[2][np.where(ip_regions_SAM == region_index)]
+#               , '-', color=color,
+#                   alpha=1, markersize=3)
 
 
 # set bounds for nice view

@@ -12,6 +12,8 @@ Energy, Vol.173, pp. 569-585, 2019.
 """
 import awebox as awe
 import awebox.opts.kite_data.ampyx_ap2_settings as ampyx_ap2_settings
+import matplotlib.pyplot as plt
+from examples.paper_benchmarks.reference_options import set_reference_options
 import numpy as np
 
 # set the logger level to 'DEBUG' to see IPOPT output
@@ -24,45 +26,33 @@ def run_DEFAULT_MPC_experiment(N):
     # here: single kite with 6DOF Ampyx AP2 model
     options = {}
     options['user_options.system_model.architecture'] = {1: 0}
-    options = ampyx_ap2_settings.set_ampyx_ap2_settings(options)
-    # options['model.system_bounds.theta.t_f'] = [5., 30.]  # [s]
+    options = set_reference_options(options)
+    options['user_options.trajectory.lift_mode.phase_fix'] = 'single_reelout'
 
-    # indicate desired operation mode
-    # here: lift-mode system with pumping-cycle operation, with a one winding trajectory
-    options['user_options.trajectory.type'] = 'power_cycle'
-    options['user_options.trajectory.system_type'] = 'lift_mode'
     options['user_options.trajectory.lift_mode.windings'] = N + 1
-
-    # indicate desired environment
-    # here: wind velocity profile according to power-law
-    options['params.wind.z_ref'] = 100.0
-    options['params.wind.power_wind.exp_ref'] = 0.15
-    options['user_options.wind.model'] = 'power'
-    options['user_options.wind.u_ref'] = 10.
-
-    # indicate numerical nlp details
-    # here: nlp discretization, with a zero-order-hold control parametrization, and a simple phase-fixing routine. also, specify a linear solver to perform the Newton-steps within ipopt.
-    options['model.system_bounds.x.l_t'] = [10.0, 2500.0]  # [m]
-    options['model.system_bounds.theta.t_f'] = [50, 50 + N * 20]  # [s]
-
-
-    # a simple phase-fixing routine. also, specify a linear solver to perform the Newton-steps
-    # within ipopt.
     options['nlp.n_k'] = 80 + N * 20
     options['nlp.collocation.u_param'] = 'zoh'
-    options['nlp.cost.output_quadrature'] = False  # use enery as a state, works better with SAM
-    options['user_options.trajectory.lift_mode.phase_fix'] = 'single_reelout'  # 'single_reelout'
     options['solver.linear_solver'] = 'ma27'  # if HSL is installed, otherwise 'mumps'
-    options['nlp.cost.beta'] = False  # penalize side-slip (can improve convergence)
 
     # (experimental) set to "True" to significantly (factor 5 to 10) decrease construction time
     # note: this may result in slightly slower solution timings
     options['nlp.compile_subfunctions'] = False
+    options['nlp.cost.beta'] = False  # penalize side-slip (can improve convergence)
     options['model.integration.method'] = 'constraints'  # use enery as a state, works better with SAM
-    options['visualization.cosmetics.interpolation.n_points'] = 300 * N # high plotting resolution
 
-    # for option_name, option_val in overwrite_options.items():
-    #     options[option_name] = option_val
+    # reduce turnrate
+    omega_bound = 25.0 * np.pi / 180.0
+    options['model.system_bounds.x.omega'] = [np.array(3 * [-omega_bound]), np.array(3 * [omega_bound])]
+
+    # model bounds
+    options['user_options.trajectory.fixed_params'] = {'diam_t':2E-3}  # free tether diameter
+    options['model.system_bounds.x.dl_t'] = [-15.0, 20.0]  # [m/s]=
+    options['model.system_bounds.x.l_t'] = [10.0, 500.0 + 100 * N]
+    # options['model.system_bounds.x.ddl_t'] = [-2.4, 2.4]  # [m/s^2]
+    options['model.system_bounds.theta.t_f'] = [20 + N * 10, 60 + N * 15]  # [s]
+    # solver and viz options
+    options['solver.linear_solver'] = 'ma27'
+    options['visualization.cosmetics.interpolation.n_points'] = 300 * N  # high plotting resolution
 
     # build and optimize the NLP (trial)
     trial = awe.Trial(options, 'Ampyx_AP2')
@@ -150,6 +140,10 @@ def run_DEFAULT_MPC_experiment(N):
     plot_dict_CLSIM = closed_loop_sim.visualization.plot_dict
     export_dict_MPC['time'] = plot_dict_CLSIM['time_grids']['ip']
     export_dict_MPC['x'] = plot_dict_CLSIM['x']
+
+    # store mpc stats
+    export_dict_MPC['mpc_cpu_time'] = closed_loop_sim.mpc.log['cpu']
+    export_dict_MPC['mpc_iter'] = closed_loop_sim.mpc.log['iter']
 
     export_dict = {'DEFAULT': export_dict_DEFAULT, 'MPC': export_dict_MPC}
 

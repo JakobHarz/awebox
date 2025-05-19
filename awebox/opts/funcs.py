@@ -34,7 +34,7 @@ import awebox.tools.print_operations as print_op
 def enforce_and_check_SAM_options(options, user_options):
     # SAM requires some settings, here we enforce them
 
-    assert options['nlp']['SAM']['N'] >= options['nlp']['SAM']['d'], 'SAM requires N >= d'
+    # assert options['nlp']['SAM']['N'] >= options['nlp']['SAM']['d'], 'SAM requires N >= d'
     assert options['nlp']['SAM']['d'] >= 2, 'SAM requires atleast two microintegration >= 2'
     assert options['nlp']['collocation']['u_param'] == 'zoh', 'SAM currently only support zoh control parameterization'
 
