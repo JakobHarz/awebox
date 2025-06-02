@@ -12,8 +12,6 @@ Energy, Vol.173, pp. 569-585, 2019.
 """
 import awebox as awe
 import awebox.opts.kite_data.ampyx_ap2_settings as ampyx_ap2_settings
-import matplotlib.pyplot as plt
-from examples.paper_benchmarks.reference_options import set_reference_options
 import numpy as np
 
 # set the logger level to 'DEBUG' to see IPOPT output
@@ -26,32 +24,35 @@ def run_DEFAULT_MPC_experiment(N):
     # here: single kite with 6DOF Ampyx AP2 model
     options = {}
     options['user_options.system_model.architecture'] = {1: 0}
-    options = set_reference_options(options)
-    options['user_options.trajectory.lift_mode.phase_fix'] = 'single_reelout'
+    options = ampyx_ap2_settings.set_ampyx_ap2_settings(options)
 
+    # indicate desired operation mode
+    # here: lift-mode system with pumping-cycle operation, with a one winding trajectory
+    options['user_options.trajectory.type'] = 'power_cycle'
+    options['user_options.trajectory.system_type'] = 'lift_mode'
     options['user_options.trajectory.lift_mode.windings'] = N + 1
-    options['nlp.n_k'] = 80 + N * 20
-    options['nlp.collocation.u_param'] = 'zoh'
+
+    # indicate desired environment
+    # here: wind velocity profile according to power-law
+    options['params.wind.z_ref'] = 100.0
+    options['params.wind.power_wind.exp_ref'] = 0.15
+    options['user_options.wind.model'] = 'power'
+    options['user_options.wind.u_ref'] = 10.
+
+    # indicate numerical nlp details
     options['solver.linear_solver'] = 'ma27'  # if HSL is installed, otherwise 'mumps'
-
-    # (experimental) set to "True" to significantly (factor 5 to 10) decrease construction time
-    # note: this may result in slightly slower solution timings
-    options['nlp.compile_subfunctions'] = False
     options['nlp.cost.beta'] = False  # penalize side-slip (can improve convergence)
+    options['nlp.compile_subfunctions'] = False
     options['model.integration.method'] = 'constraints'  # use enery as a state, works better with SAM
-
-    # reduce turnrate
-    omega_bound = 25.0 * np.pi / 180.0
-    options['model.system_bounds.x.omega'] = [np.array(3 * [-omega_bound]), np.array(3 * [omega_bound])]
+    options['nlp.collocation.u_param'] = 'zoh'
+    options['nlp.n_k'] = 80 + N * 20
+    options['user_options.trajectory.lift_mode.phase_fix'] = 'single_reelout'  # 'single_reelout'
 
     # model bounds
-    options['user_options.trajectory.fixed_params'] = {'diam_t':2E-3}  # free tether diameter
-    options['model.system_bounds.x.dl_t'] = [-15.0, 20.0]  # [m/s]=
-    options['model.system_bounds.x.l_t'] = [10.0, 500.0 + 100 * N]
-    # options['model.system_bounds.x.ddl_t'] = [-2.4, 2.4]  # [m/s^2]
-    options['model.system_bounds.theta.t_f'] = [20 + N * 10, 60 + N * 15]  # [s]
-    # solver and viz options
-    options['solver.linear_solver'] = 'ma27'
+    options['model.system_bounds.x.l_t'] = [10.0, 2500.0]  # [m]
+    options['model.system_bounds.theta.t_f'] = [50, 50 + N * 20]  # [s]
+
+    # viz options
     options['visualization.cosmetics.interpolation.n_points'] = 300 * N  # high plotting resolution
 
     # build and optimize the NLP (trial)
@@ -68,7 +69,6 @@ def run_DEFAULT_MPC_experiment(N):
     # awelogger.logger.setLevel('INFO')
     time_grid_MPC = trial.visualization.plot_dict['time_grids']['x']
     T_opt = float(time_grid_MPC[-1])
-
 
     # set-up closed-loop simulation
     T_mpc = 3 # seconds

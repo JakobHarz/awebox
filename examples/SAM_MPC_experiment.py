@@ -17,8 +17,6 @@ import numpy
 
 import awebox as awe
 import awebox.opts.kite_data.ampyx_ap2_settings as ampyx_ap2_settings
-import matplotlib.pyplot as plt
-from examples.paper_benchmarks.reference_options import set_reference_options
 import numpy as np
 
 # set the logger level to 'DEBUG' to see IPOPT output
@@ -47,12 +45,9 @@ def run_SAM_MPC_experiment(d=3, N=5):
     options['user_options.wind.u_ref'] = 10.
 
     # indicate numerical nlp details
-    # here: nlp discretization, with a zero-order-hold control parametrization, and a simple phase-fixing routine. also, specify a linear solver to perform the Newton-steps within ipopt.
-
-    # (experimental) set to "True" to significantly (factor 5 to 10) decrease construction time
-    # note: this may result in slightly slower solution timings
-    options['nlp.compile_subfunctions'] = False
+    options['solver.linear_solver'] = 'ma27'
     options['nlp.cost.beta'] = False  # penalize side-slip (can improve convergence)
+    options['nlp.compile_subfunctions'] = False
     options['model.integration.method'] = 'constraints'  # use enery as a state, works better with SAM
 
     options['nlp.collocation.u_param'] = 'zoh'
@@ -62,7 +57,6 @@ def run_SAM_MPC_experiment(d=3, N=5):
     options['nlp.SAM.d'] = d  # the number of cycles actually computed
     options['nlp.SAM.ADAtype'] = 'CD'  # the approximation scheme
     options['user_options.trajectory.lift_mode.windings'] = options['nlp.SAM.d'] + 1  # todo: set this somewhere else
-    options['user_options.trajectory.fixed_params'] = {'diam_t':2E-3}  # free tether diameter
 
     # SAM Regularization
     single_regularization_param = 1E-1
@@ -72,17 +66,15 @@ def run_SAM_MPC_experiment(d=3, N=5):
     options['nlp.SAM.Regularization.AverageAlgebraicsThirdDeriv'] = 0 * single_regularization_param
     options['nlp.SAM.Regularization.SimilarMicroIntegrationDuration'] = 1E-2 * single_regularization_param
 
-
     # Number of discretization points
     n_k = 20 * (options['nlp.SAM.d']) * 2
     options['nlp.n_k'] = n_k
 
     # model bounds
     options['model.system_bounds.x.l_t'] = [10.0, 2500.0]  # [m]
-    options['model.system_bounds.theta.t_f'] = [50, 50 + options['nlp.SAM.N'] * 20]  # [s]
+    options['model.system_bounds.theta.t_f'] = [50, 50 + N * 20]  # [s]
 
-    # solver and viz options
-    options['solver.linear_solver'] = 'ma27'
+    # viz options
     options['visualization.cosmetics.interpolation.n_points'] = 300 * options['nlp.SAM.N']  # high plotting resolution
 
     # build and optimize the NLP (trial)

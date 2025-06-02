@@ -1,12 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib import colors
-import matplotlib.cm as cmx
-
 from matplotlib.patches import Polygon
-
-from awebox.ocp.collocation import Collocation
-
 
 # %% Latexify the plots
 def latexify():
@@ -28,9 +22,7 @@ def latexify():
 latexify()
 
 # %% Load Data
-# filepath = '_export/toPlot/20250515_2028_AWE_SAM_N4_d3.npz'
-# filepath = '_export/_thursday/toPlot/20250515_2257_AWE_SAM_N20_d4.npz'
-filepath = '_export/1605_1/toPlot/20250516_1109_AWE_SAM_N4_d3.npz'
+filepath = '_export/experiments/toPlot/20250602_1206_AWE_SAM_N10_d4.npz'
 data = np.load(filepath,allow_pickle=True)
 
 data_SAM = data['SAM'].item()
@@ -108,27 +100,9 @@ def drawPlane(pos, rot, wingspan, color='C0', alpha=1, twoDimensions=False):
         x[part] = [(xx + x_offset) / normalization for xx in x[part]]
         y[part] = [(yy + y_offset) / normalization for yy in y[part]]
         z[part] = [(zz + z_offset) / normalization for zz in z[part]]
-
-        # for kk in range(len(x[part])):
-        #     vec = np.array([x[part][kk], y[part][kk], z[part][kk]])
-        #     print(f'Vec Shape: {vec.shape}')
-        #     vec_rot = np.matmul(rot, vec)
-        #     print(f'Vec_rot Shape: {vec_rot.shape}')
-        #
-        #     x[part][kk] = vec_rot[0] + posKite[0]
-        #     y[part][kk] = vec_rot[1] + posKite[1]
-        #     z[part][kk] = vec_rot[2] + posKite[2]
-        # verts = np.array([list(zip(x[part], y[part], z[part]))])
-
-
         verts = np.vstack([x[part],y[part],z[part]])
-
-        # print(f"verts:{verts.shape}")
-        # print(f'rot:{rot.shape}')
-
         verts_rot = rot@verts + pos
-        # verts_rot = verts + posKite
-        # print(verts_rot.shape)
+
         if part != 'wing':
             zorder = -1
         else:
@@ -249,19 +223,6 @@ for figure_type in ['SAM', 'REC', 'MPC']:
     plt.savefig(f'figures/3DReelout_{figure_type}.pdf')
     plt.show()
 
-# %% DEEBUG COLORPLOT
-#
-# plt.figure()
-# cm_subsection = np.linspace(0, 1, 200)
-#
-# colors = [cm(x) for x in cm_subsection ]
-#
-# for i, color in enumerate(colors):
-#     plt.axhline(cm_subsection[i], color=color)
-#
-# plt.ylabel('Line Number')
-# plt.show()
-
 # %% ebd
 # %% 3D INTRO PLOT: AWE
 import mpl_toolkits.mplot3d as a3
@@ -278,43 +239,12 @@ time_X = data_SAM['time_X']
 plt.figure(figsize=(9, 5.5))
 ax = plt.axes(projection='3d')
 
-# power_array = np.diff(data_MPC['x']['e'][0][0:]) / np.diff(data_MPC['time'][0:])
-# # p_min = np.min(power_array)
-# # p_max = -np.min(power_array)
-# # power_0_1 = np.clip(power_array/(-p_min), 0, 1)
-#
-# # color map for the positive and negative power values
-# # cm = plt.get_cmap('RdYlGn')
-# # cm = plt.get_cmap('bwr')
-# cm = plt.get_cmap('coolwarm')
-# p_min = np.min(power_array)*1.5
-# cNorm  = colors.Normalize(vmin=p_min, vmax=-p_min,clip=True)
-# scalarMap = cmx.ScalarMappable(norm=cNorm, cmap=cm)
-#
-# for n in range(power_array.size):
-#
-#     # color = cm(power_0_1[n])
-#     color = scalarMap.to_rgba(power_array[n])
-#     start = np.array([q10_MPC[0][n], q10_MPC[1][n], q10_MPC[2][n]])
-#     end = np.array([q10_MPC[0][n+1], q10_MPC[1][n+1], q10_MPC[2][n+1]])
-#
-#     # remove a tiny length of the direction
-#     direction = end - start
-#     end = start + direction*1
-#     nodes = np.vstack([start, end]).T
-#     ax.plot3D(nodes[0],nodes[1],nodes[2], color=color, alpha=1)
-
-# final_index = q10_MPC[0].size//10
-
 ax.plot3D(q10_REC[0], q10_REC[1], q10_REC[2], 'C0-', alpha=0.5)
 
 # plot a kite at the end of the section
 kite_index = 55
 r10 = np.vstack([data_MPC['x']['r10'][i][kite_index] for i in range(data_MPC['x']['r10'].__len__())])
 q10 = np.vstack([data_MPC['x']['q10'][i][kite_index] for i in range(data_MPC['x']['q10'].__len__())])
-# drawPlane(q10,r10,wingspan=65,color='k')
-# # draw a straight tether to the origin
-# ax.plot3D([0, float(q10[0])], [0, float(q10[1])], [0, float(q10[2])], 'k-', alpha=0.5,linewidth=1)
 
 for kite_ind in np.arange(0, data_MPC['x']['q10'][0][0:-5].size, 10):
     r10 = np.vstack([data_MPC['x']['r10'][i][kite_ind] for i in range(data_MPC['x']['r10'].__len__())])
@@ -387,11 +317,6 @@ ax.plot3D(q10_opt[0][np.where(ip_regions_SAM == d)],
           , '-', color='C0',
           alpha=1, markersize=3)
 
-# average
-# ax.plot3D(Q10_SAM[0], Q10_SAM[1], Q10_SAM[2], 'C1-', alpha=1)
-# ax.plot3D(Q10_SAM[0][0], Q10_SAM[1][0], Q10_SAM[2][0], 'C1.', alpha=1)
-# ax.plot3D(Q10_SAM[0][-1], Q10_SAM[1][-1], Q10_SAM[2][-1], 'C1.', alpha=1)
-
 for region_index in np.arange(0, data_SAM['d'] + 1):
     color = 'C0' if region_index == data_SAM['d'] else 'C2'
 
@@ -403,25 +328,13 @@ for region_index in np.arange(0, data_SAM['d'] + 1):
 
 ax.plot3D(q10_REC[0], q10_REC[1], q10_REC[2], 'C0-', alpha=0.25)
 
-# ax.plot3D(q10_REC[0], q10_REC[1], q10_REC[2], 'C0-', alpha=0.2)
-
 final_index = q10_MPC[0].size//4 + 20
 section_to_plot = slice(0,final_index )
-# ax.plot3D(q10_MPC[0][section_to_plot], q10_MPC[1][section_to_plot], q10_MPC[2][section_to_plot], 'r-', alpha=0.75)
 
-# section mpc:
-# section_to_plot_mpc = slice(final_index, final_index + 30)
-# ax.plot3D(q10_MPC[0][section_to_plot_mpc], q10_MPC[1][section_to_plot_mpc], q10_MPC[2][section_to_plot_mpc], 'r--', alpha=0.75)
 
 # plot a kite at the end of the section
 r10 = np.vstack([data_MPC['x']['r10'][i][final_index] for i in range(data_MPC['x']['r10'].__len__())])
 q10 = np.vstack([data_MPC['x']['q10'][i][final_index] for i in range(data_MPC['x']['q10'].__len__())])
-# drawKite(q10,
-         # r10, 30, color='k', alpha=1)
-# drawPlane(q10,r10,wingspan=50,color='k')
-# # draw a straight tether to the origin
-# ax.plot3D([0, float(q10[0])], [0, float(q10[1])], [0, float(q10[2])], 'k-', alpha=0.5,linewidth=1)
-#
 
 # set bounds for nice view
 q10_REC_all = np.vstack([q10_REC[0],q10_REC[1],q10_REC[2]])

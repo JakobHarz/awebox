@@ -21,10 +21,9 @@ def latexify():
         "ytick.labelsize": 8
     }
     matplotlib.rcParams.update(params_MPL_Tex)
-
-
 latexify()
 
+# %% Classes to store the experiment data
 class ExperimentInfo:
     def __init__(self, filepath: str):
 
@@ -59,6 +58,9 @@ class ExperimentInfo:
             if self.data_MPC.get('mpc_cpu_time') is not None:
                 self.t_wall_MPC = self.data_MPC['mpc_cpu_time'][1:]
                 self.t_iter_MPC = self.data_MPC['mpc_iter'][1:]
+            else: # else set to np.inf
+                self.t_wall_MPC = np.inf * np.ones(self.N)
+                self.t_iter_MPC = np.inf * np.ones(self.N)
 
 class DefaultExperimentInfo:
     def __init__(self, filepath: str):
@@ -89,15 +91,13 @@ class DefaultExperimentInfo:
             if self.data_MPC.get('mpc_cpu_time') is not None:
                 self.t_wall_MPC = self.data_MPC['mpc_cpu_time'][1:] # remove first iteration since no warmstarting
                 self.t_iter_MPC = self.data_MPC['mpc_iter'][1:] # remove first iteration since no warmstarting
+            else: # else set to np.inf
+                self.t_wall_MPC = np.inf * np.ones(self.N)
+                self.t_iter_MPC = np.inf * np.ones(self.N)
 
 # %% Load series of experiements:
 import os
-base_directory = '_export/_firstSubmission'
-# base_directory = '_export/_friday_oldParameters'
-# base_directory = '_export/_thursday'
-# base_directory = '_export/1605_1'
-# base_directory = '_export/1605_2'
-# base_directory = '_export/1605_3'
+base_directory = '_export/0206'
 
 all_experiments = []
 for file in os.listdir(f'{base_directory}/toPlot'):
@@ -128,24 +128,7 @@ for key in list(experiments_by_d.keys()):
 # sort the default list by N
 default_experiments.sort(key=lambda x: x.N)
 
-
-# %% Print a comparison:
-# on t_iter, N, N_var, iterations
-# exp_comp_1 = experiments_by_d[6][1]
-# exp_comp_2 = default_experiments[-2]
-#
-# print(f'Comparison of d=6 and full problem N=6')
-# print(f'N: {exp_comp_1.N} vs. {exp_comp_2.N}')
-# print(f't_iter: {exp_comp_1.t_iter} vs. {exp_comp_2.t_iter}')
-# print(f'N_var: {exp_comp_1.N_var} vs. {exp_comp_2.N_var}')
-# print(f'iterations: {exp_comp_1.iterations} vs. {exp_comp_2.iterations}')
-# print(f't_wall: {exp_comp_1.t_wall} vs. {exp_comp_2.t_wall}')
-
-
 # %% Plot Series
-
-# fig, axes = plt.subplot_mosaic("AA;AA;AA;CC;CC", figsize=(4.5, 3.5))
-# fig, axes = plt.subplot_mosaic("AA;AA;AA;AA;BB;BB;CC;CC;DD;DD", figsize=(5.5, 5.5))
 fig, axes = plt.subplot_mosaic("AA;AA;AA;BB;BB;CC;CC", figsize=(4.5,4))
 plt.sca(axes['A'])
 
@@ -154,20 +137,13 @@ plt.sca(axes['A'])
 J_DEF_list = np.array([exp.J_DEFAULT for exp in default_experiments])
 N_DEF_list = np.array([exp.N for exp in default_experiments])
 J_DEF_MPC_list = np.array([exp.J_MPC for exp in default_experiments])
-
-# for N, J_def, J_mpc in zip(N_DEF_list, J_DEF_list, J_DEF_MPC_list):
-#     plt.plot([N, N], [J_def / 1000, J_mpc / 1000], f'C2.-', alpha=0.3)
-# plt.plot([],[],f'C2.',label=f'Full Problem', alpha=0.3)
-# plt.plot(N_DEF_list, J_DEF_list/1000, f'r^-', markersize=3, label=f'Full Problem')
 plt.plot(N_DEF_list, J_DEF_MPC_list/1000, f'r^-', markersize=3, label=f'Full Problem')
 
 plt.sca(axes['B'])
 error = (J_DEF_list - J_DEF_MPC_list)/J_DEF_MPC_list
 plt.plot(N_DEF_list, np.abs(error)*100, f'r^-', markersize=3, label=f'Full Problem')
 
-
 # plot sam results
-# ds_to_plot = [4,5,6]
 ds_to_plot = list(experiments_by_d.keys())
 for index,d in enumerate(ds_to_plot):
     experiments = experiments_by_d[d]
@@ -177,19 +153,13 @@ for index,d in enumerate(ds_to_plot):
     N_list = np.array([exp.N for exp in experiments])
 
     plt.sca(axes['A'])
-    # for N, J_sam, J_mpc in zip(N_list, J_SAM_list, J_MPC_list):
-    #     plt.plot([N, N], [J_sam/1000, J_mpc/1000], f'C{index}.-', alpha=0.3)
     plt.plot([],[],f'C{index}.-',label=f'd={d}', alpha=1)
-    # plt.plot(N_list, J_SAM_list/1000, f'C{index}.-', alpha=1)
     plt.plot(N_list, J_MPC_list/1000,f'C{index}.-')
 
     plt.sca(axes['B'])
     error = (J_SAM_list - J_MPC_list)/J_MPC_list
     plt.plot(N_list, np.abs(error)*100, f'C{index}.-', alpha=1)
     plt.plot([],[],f'C{index}.-',label=f'd={d}', alpha=1)
-
-
-
 
 
 plt.sca(axes['A'])
@@ -202,7 +172,7 @@ plt.grid(alpha=0.25)
 plt.legend(ncol=2,loc='upper right')
 
 plt.sca(axes['B'])
-plt.ylim([0, 16])
+plt.ylim([0, 11])
 plt.xticks(np.arange(-20,50,5))
 plt.xlim([0, np.max(N_list)*1.05])
 # plt.gca().yaxis.set_major_formatter(mtick.PercentFormatter())
@@ -215,9 +185,6 @@ plt.legend(ncol=len(ds_to_plot)+1)
 plt.sca(axes['C'])
 
 # plot default results
-N_DEF_list = np.array([exp.N for exp in default_experiments])
-# t_wall_DEF_list = np.array([exp.t_wall for exp in default_experiments])
-# plt.plot(N_DEF_list, t_wall_DEF_list, f'r^-', markersize=3,label=f'Full Problem')
 t_iter_DEF_list = np.array([exp.t_iter for exp in default_experiments])
 plt.plot(N_DEF_list, t_iter_DEF_list, f'r^-', markersize=3,label=f'Full Problem')
 
