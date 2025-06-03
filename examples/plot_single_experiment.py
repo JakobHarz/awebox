@@ -22,8 +22,8 @@ def latexify():
 latexify()
 
 # %% Load Data
-filepath = '_export/experiments/toPlot/20250602_1206_AWE_SAM_N10_d4.npz'
-# filepath = '_export/experiments/toPlot/20250602_1107_AWE_SAM_N3_d4.npz'
+# filepath = '_export/experiments/toPlot/20250602_1206_AWE_SAM_N10_d4.npz'
+filepath = '_export/experiments/toPlot/20250602_1107_AWE_SAM_N3_d4.npz'
 data = np.load(filepath,allow_pickle=True)
 
 data_SAM = data['SAM'].item()
@@ -274,7 +274,7 @@ ax.set_box_aspect([1, 1, 1])
 
 pos_wind_arrow = np.array([meanpos[0] - 1.3*bblenght, meanpos[1] - bblenght, meanpos[2] + bblenght*0.4])
 ax.quiver(pos_wind_arrow[0],pos_wind_arrow[1],pos_wind_arrow[2], 1, 0, 0, length=100, color='k')
-ax.text(pos_wind_arrow[0]+50,pos_wind_arrow[1],pos_wind_arrow[2], "Wind", 'x', color='k', size=12)
+ax.text(pos_wind_arrow[0]+50,pos_wind_arrow[1],pos_wind_arrow[2]+10, "Wind", 'x', color='k', size=12)
 
 ax.set_xlabel(r'$x$ in m')
 ax.set_ylabel(r'$y$ in m')
