@@ -23,6 +23,7 @@ latexify()
 
 # %% Load Data
 filepath = '_export/experiments/toPlot/20250602_1206_AWE_SAM_N10_d4.npz'
+# filepath = '_export/experiments/toPlot/20250602_1107_AWE_SAM_N3_d4.npz'
 data = np.load(filepath,allow_pickle=True)
 
 data_SAM = data['SAM'].item()
@@ -223,7 +224,6 @@ for figure_type in ['SAM', 'REC', 'MPC']:
     plt.savefig(f'figures/3DReelout_{figure_type}.pdf')
     plt.show()
 
-# %% ebd
 # %% 3D INTRO PLOT: AWE
 import mpl_toolkits.mplot3d as a3
 import matplotlib
@@ -257,7 +257,7 @@ for kite_ind in np.arange(0, data_MPC['x']['q10'][0][0:-5].size, 10):
 q10_REC_all = np.vstack([q10_REC[0],q10_REC[1],q10_REC[2]])
 meanpos = np.mean(q10_REC_all, axis=1) + np.array([0, 30, 30])
 
-bblenght = np.max(np.abs(q10_REC_all - meanpos.reshape(3, 1)))/1.8
+bblenght = np.max(np.abs(q10_REC_all - meanpos.reshape(3, 1)))/1.6
 
 # plot a ground station at the origin
 ax.plot3D(0,0,0,'ks',markersize=4)
@@ -283,7 +283,7 @@ ax.set_zlabel(r'$z$ in m')
 # ax.legend()
 
 # plt.axis('off')
-ax.view_init(elev=19., azim=142)
+ax.view_init(elev=0, azim=142)
 
 # plt.legend()
 plt.tight_layout()
@@ -380,8 +380,8 @@ coll_points_t = coll_points_tau*data_SAM['time_X'][-1]
 # find the index in the time grid that is closest to the collocation points
 coll_points_index = np.array([np.argmin(np.abs(data_SAM['time_X'] - t)) for t in coll_points_t])
 
-# plt.figure(figsize=(4.5, 2.5))
-plt.figure(figsize=(10, 2))
+plt.figure(figsize=(4.5, 2.5))
+# plt.figure(figsize=(10, 2))
 plot_states = ['dq10']
 for index, state_name in enumerate(plot_states):
     plt.subplot(1, 1, index + 1)
@@ -437,7 +437,7 @@ for index, state_name in enumerate(plot_states):
     plt.ylabel('$\dot{q}_x$ [m/s]')
     plt.grid(alpha=0.25)
     plt.legend(loc='upper right')
-    plt.ylim([-30,32])
+    plt.ylim([-23,32])
     # plt.ylim([-22,32])
 
 # fancy annotations

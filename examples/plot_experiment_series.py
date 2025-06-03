@@ -97,7 +97,7 @@ class DefaultExperimentInfo:
 
 # %% Load series of experiements:
 import os
-base_directory = '_export/0206'
+base_directory = '_export/experiments'
 
 all_experiments = []
 for file in os.listdir(f'{base_directory}/toPlot'):
