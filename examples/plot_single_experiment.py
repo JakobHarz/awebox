@@ -22,8 +22,9 @@ def latexify():
 latexify()
 
 # %% Load Data
-# filepath = '_export/experiments/toPlot/20250602_1206_AWE_SAM_N10_d4.npz'
-filepath = '_export/experiments/toPlot/20250602_1107_AWE_SAM_N3_d4.npz'
+filepath = '_export/experiments/toPlot/20250602_1206_AWE_SAM_N10_d4.npz'
+# filepath = '_export/experiments/toPlot/20250602_1107_AWE_SAM_N3_d4.npz'
+# filepath = '_export/experiments/toPlot/20250602_1140_AWE_SAM_N6_d4.npz'
 data = np.load(filepath,allow_pickle=True)
 
 data_SAM = data['SAM'].item()
@@ -473,3 +474,158 @@ plt.gca().annotate('',xy=(t_end, pos_y),xytext=(t_switch + 2*delta_end/3, pos_y)
 plt.tight_layout()
 plt.savefig('figures/velocity.pdf')
 plt.show()
+
+# %% plot only a subset of the states for talk
+
+# get the approximate collocation points
+import casadi as ca
+coll_points_tau = np.array(ca.collocation_points(d,'legendre'))
+coll_points_t = coll_points_tau*data_SAM['time_X'][-1]
+# find the index in the time grid that is closest to the collocation points
+coll_points_index = np.array([np.argmin(np.abs(data_SAM['time_X'] - t)) for t in coll_points_t])
+
+# plt.figure(figsize=(10, 2))
+state_name = 'q10'
+
+state_traj = np.vstack([data_SAM['x'][state_name][i] for i in range(data_SAM['x'][state_name].__len__())]).T
+state_recon = np.vstack([data_REC['x'][state_name][i] for i in range(data_REC['x'][state_name].__len__())]).T
+state_X = np.vstack([data_SAM['X'][state_name][i] for i in range(data_SAM['X'][state_name].__len__())]).T
+
+# 0: only reconstruction
+# 1: only reconstruction, in numerical time
+
+
+for plot_index in [3,2,1,0]:
+    plt.figure(figsize=(4.5, 2.5))
+
+    # phase switch
+    t_switch = time_X[-1]*N
+    t_end = data_SAM['time'][-1]
+
+    # to get to numerical time
+    t_scale = t_switch/(N) if plot_index in [2,3] else 1
+    t_scale_ri = t_end - t_switch
+
+    SCALE_TYPE = 'tau' if plot_index in [1,2,3] else 't'
+
+    if plot_index != 1:
+        plt.axvline(x=0,color='k',linestyle='-',alpha=0.5)
+        plt.axvline(x=t_switch/t_scale,color='k',linestyle='-',alpha=0.5)
+
+        if SCALE_TYPE == 't':
+            plt.axvline(x=t_end/t_scale,color='k',linestyle='-',alpha=0.5)
+        else:
+            plt.axvline(x=N+1,color='k',linestyle='-',alpha=0.5)
+
+    # if state_name == 'dq10':
+    state_index = 2
+    state_traj = data_SAM['x'][state_name][state_index]
+    state_X = data_SAM['X'][state_name][state_index]
+    state_recon = data_REC['x'][state_name][state_index]
+
+    if plot_index > 1:
+
+        # plot the average state poly
+        plt.plot(time_X*N/t_scale, state_X, 'C1-')
+        plt.plot(time_X[-1]*N/t_scale, state_X[-1], 'C1.')
+        plt.plot(time_X[0]*N/t_scale, state_X[0], 'C1.')
+        plt.plot(time_X[coll_points_index]*N/t_scale,state_X[coll_points_index],'C1.')
+        plt.plot([],[],'C1-',label=r'Macro-Integration')
+
+        if plot_index > 2:
+            for region_index in range(d):
+                time_micro = data_SAM['time'][np.where(ip_regions_SAM == region_index)]/t_scale
+                state_micro = state_traj[np.where(ip_regions_SAM == region_index)]
+                plt.plot(time_micro,state_micro,'C0-' if region_index == d else 'C2-')
+
+                if region_index < d:
+                    # point at start and end
+                    plt.plot(time_micro[0],state_micro[0],'C2.')
+                    plt.plot(time_micro[-1],state_micro[-1],'C2.')
+
+                plt.gca().set_prop_cycle(None)  # reset color cycle
+            plt.plot([], [],'C2.-', label='Micro-Integration')
+
+        # reelin
+
+        # plt.plot(data_REC['time'][switchIndex - 1:], state_recon[switchIndex - 1:], color='C0', linestyle='-', alpha=1)
+        plt.plot(np.linspace(N,N+1,len(state_recon[switchIndex - 1:])), state_recon[switchIndex - 1:], color='C0', linestyle='-', alpha=1)
+
+    plt.gca().set_prop_cycle(None)  # reset color cycle
+    switchIndex = np.argmin(np.abs(data_REC['time'] - t_switch))
+
+    if plot_index == 0:
+        plt.plot(data_REC['time'], state_recon, label=r'$p_z(t)$', linestyle='-',alpha=1)
+
+
+    # if plot_index >:
+    #     plt.plot(data_REC['time'][switchIndex-1:], state_recon[switchIndex-1:], color = 'C0', linestyle='-',alpha=1)
+
+
+    if plot_index == 1:
+
+        tau_plot_rout = np.linspace(0,N,switchIndex)
+        tau_plot_rin = np.linspace(N, N+1, data_REC['time'].size - switchIndex + 1)
+        plt.plot(tau_plot_rout, state_recon[0:switchIndex], color = 'C0', label=r'$p_z(\tau)$', linestyle='-',alpha=1)
+        plt.plot(tau_plot_rin, state_recon[switchIndex-1:], color = 'C0', linestyle='-',alpha=1)
+
+
+        # vertical lines at each integer time
+        for n in range(N+2):
+            plt.axvline(x=n,color='k',linestyle='-',alpha=0.25)
+
+
+    if SCALE_TYPE == 't':
+        plt.xlabel('t [s]')
+    else:
+        plt.xlabel(r'$\tau$')
+    plt.ylabel('$p_z$ [m]')
+    plt.grid(alpha=0.25)
+    plt.legend(loc='upper right')
+    plt.ylim([50,350])
+    # plt.ylim([-22,32])
+
+    # fancy annotations
+    # pos_y = -25
+    pos_y = 70
+    if plot_index in [0,4]:
+        plt.gca().annotate(
+            'Reel-Out',
+            xy=(t_switch/t_scale/2, pos_y),  # Position of the text (x, y)  # Position above for text
+            ha="center",
+            va="center",
+            fontsize=10,
+        )
+        plt.gca().annotate('',xy=(0, pos_y),xytext=(t_switch/3/t_scale, pos_y),
+                           arrowprops=dict(arrowstyle='->', lw=1,color='k',shrinkA=0,shrinkB=0))
+        plt.gca().annotate('',xy=(t_switch/t_scale, pos_y),xytext=(2*t_switch/3/t_scale, pos_y),
+                           arrowprops=dict(arrowstyle='->', lw=1,color='k',shrinkA=0,shrinkB=0))
+
+        plt.gca().annotate(
+            'Reel-In',
+            xy=((t_switch+t_end)/2/t_scale, pos_y),  # Position of the text (x, y)  # Position above for text
+            ha="center",
+            va="center",
+            fontsize=10,
+        )
+        delta_end = t_end- t_switch
+        plt.gca().annotate('',xy=(t_switch/t_scale, pos_y),xytext=((t_switch + delta_end/3)/t_scale, pos_y),
+                           arrowprops=dict(arrowstyle='->', lw=1,color='k',shrinkA=0,shrinkB=0))
+        plt.gca().annotate('',xy=(t_end/t_scale, pos_y),xytext=((t_switch + 2*delta_end/3)/t_scale, pos_y),
+                           arrowprops=dict(arrowstyle='->', lw=1,color='k',shrinkA=0,shrinkB=0))
+
+    # for numerical time: add duration labels $T_n$ for each interval of 1
+    if plot_index == 1:
+        for n in range(N+1):
+            plt.gca().annotate(
+                r'$T_{' + f'{n+1}' + r'}$',
+                xy=(n + 0.5, pos_y),  # Position of the text (x, y)  # Position above for text
+                ha="center",
+                va="center",
+                fontsize=10,
+            )
+
+
+    plt.tight_layout()
+    plt.savefig(f'figures/pz_talk_{plot_index}.pdf')
+    plt.show()
