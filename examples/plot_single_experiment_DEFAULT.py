@@ -21,7 +21,7 @@ def latexify():
 latexify()
 
 # %% Load Data
-filepath = '_export/_firstSubmission/toPlot_default/20250315_1604_DEFAULT_N1.npz'
+filepath = '_export/_old_Jul26/_firstSubmission/toPlot_default/20250315_1604_DEFAULT_N1.npz'
 # filepath = '_export/1605_1/toPlot_default/20250516_1113_DEFAULT_N3.npz'
 data = np.load(filepath,allow_pickle=True)
 

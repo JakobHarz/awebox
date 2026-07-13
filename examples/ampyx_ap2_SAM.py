@@ -22,17 +22,26 @@ from awebox.logger.logger import Logger as awelogger
 awelogger.logger.setLevel(10)
 
 # dual kite example?
-DUAL_KITES = False
+DUAL_KITES = True
 
 # indicate desired system architecture
 # here: single kite with 6DOF Ampyx AP2 model
 options = {}
 
+if DUAL_KITES:
+    from examples.paper_benchmarks import reference_options as ref
 
-options['user_options.system_model.architecture'] = {1: 0}
-# options = ampyx_ap2_settings.set_ampyx_ap2_settings(options)
-options = set_reference_options(options)
-options['user_options.trajectory.lift_mode.phase_fix'] = 'single_reelout'
+    options = ref.set_reference_options(user='A')
+    options = ref.set_dual_kite_options(options)
+    options['solver.max_iter_hippo'] = 1000
+
+else:
+    options['user_options.system_model.architecture'] = {1: 0}
+    options = ampyx_ap2_settings.set_ampyx_ap2_settings(options)
+    options['user_options.system_model.architecture'] = {1: 0}
+    # options = ampyx_ap2_settings.set_ampyx_ap2_settings(options)
+    options = set_reference_options(options)
+    options['user_options.trajectory.lift_mode.phase_fix'] = 'single_reelout'
 
 # # indicate desired operation mode
 # # here: lift-mode system with pumping-cycle operation, with a one winding trajectory
@@ -65,15 +74,15 @@ options['model.system_bounds.x.omega'] = [np.array(3 * [-omega_bound]), np.array
 # here: nlp discretization, with a zero-order-hold control parametrization, and a simple phase-fixing routine. also, specify a linear solver to perform the Newton-steps within ipopt.
 # (experimental) set to "True" to significantly (factor 5 to 10) decrease construction time
 # note: this may result in slightly slower solution timings
-options['nlp.compile_subfunctions'] = False
+options['nlp.compile_subfunctions'] = True
 # smooth the reel in phase (this increases convergence speed x10)
 options['nlp.cost.beta'] = False # penalize side-slip (can improve convergence)
 options['model.integration.method'] = 'constraints'  # use enery as a state, works better with SAM
 
 # indicate numerical nlp details
 options['nlp.SAM.use'] = True
-options['nlp.SAM.N'] = 4 # the number of full cycles approximated
-options['nlp.SAM.d'] = 3 # the number of cycles actually computed
+options['nlp.SAM.N'] = 5 # the number of full cycles approximated
+options['nlp.SAM.d'] = 2 # the number of cycles actually computed
 
 # SAM Regularization
 single_regularization_param = 1E-1
@@ -83,7 +92,10 @@ options['nlp.SAM.Regularization.AverageAlgebraicsThirdDeriv'] = 0*single_regular
 options['nlp.SAM.Regularization.SimilarMicroIntegrationDuration'] = 1E-2*single_regularization_param
 
 # Number of discretization points
-n_k = 20 * (options['nlp.SAM.d']) * 2
+if DUAL_KITES:
+    n_k = 10 * (options['nlp.SAM.d']) * 2
+else:
+    n_k = 20 * (options['nlp.SAM.d']) * 2
 options['nlp.n_k'] = n_k
 
 # initialization
@@ -95,8 +107,14 @@ options['model.system_bounds.x.l_t'] = [10.0, 500.0 + 100*options[
     'nlp.SAM.N']]  # [m]
 options['model.system_bounds.x.ddl_t'] = [-2.4, 2.4]  # [m/s^2]
 # options['model.system_bounds.theta.t_f'] = [50, 150 + options['nlp.SAM.N'] * 50]  # [s]
-options['model.system_bounds.theta.t_f'] = [20, 50 + options[
-    'nlp.SAM.N'] * 30]  # [s]
+
+if DUAL_KITES:
+    options['model.system_bounds.theta.t_f'] = [5, 10 * options['nlp.SAM.N']]  # [s]
+else:
+    options['model.system_bounds.theta.t_f'] = [20, 50 + options[
+        'nlp.SAM.N'] * 30]  # [s]
+
+
 options['solver.linear_solver'] = 'ma27'
 options['visualization.cosmetics.interpolation.n_points'] = 100* options['nlp.SAM.N'] # high plotting resolution
 

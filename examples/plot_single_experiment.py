@@ -22,7 +22,7 @@ def latexify():
 latexify()
 
 # %% Load Data
-filepath = '_export/experiments/toPlot/20250602_1206_AWE_SAM_N10_d4.npz'
+filepath = '_export/_old_Jul26/experiments/toPlot/20250602_1206_AWE_SAM_N10_d4.npz'
 # filepath = '_export/experiments/toPlot/20250602_1107_AWE_SAM_N3_d4.npz'
 # filepath = '_export/experiments/toPlot/20250602_1140_AWE_SAM_N6_d4.npz'
 data = np.load(filepath,allow_pickle=True)
