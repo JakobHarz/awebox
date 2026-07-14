@@ -22,7 +22,7 @@ def latexify():
 latexify()
 
 # %% Load Data
-filepath = '_export/20260713_1652_AWE_SAM_DUALKITE_N5_d2.npz'
+filepath = '_export/20260714_1318_AWE_SAM_DUALKITE_N10_d3.npz'
 data = np.load(filepath, allow_pickle=True)
 
 data_SAM = data['SAM'].item()
@@ -146,7 +146,7 @@ for figure_type in ['SAM', 'REC', 'MPC']:
 
         for q_opt, Q_SAM, color_reelin, color_avg, color_micro in [
             (q21_opt, Q21_SAM, 'C0', 'C1', 'C2'),
-            (q31_opt, Q31_SAM, 'C3', 'C4', 'C5'),
+            (q31_opt, Q31_SAM, 'C0', 'C1', 'C2'),
         ]:
             # reel in
             ax.plot3D(q_opt[0][np.where(ip_regions_SAM == d)],
@@ -171,17 +171,17 @@ for figure_type in ['SAM', 'REC', 'MPC']:
 
     if figure_type == 'REC':
         ax.plot3D(q21_REC[0], q21_REC[1], q21_REC[2], 'C0-', alpha=0.5)
-        ax.plot3D(q31_REC[0], q31_REC[1], q31_REC[2], 'C1-', alpha=0.5)
+        ax.plot3D(q31_REC[0], q31_REC[1], q31_REC[2], 'C0-', alpha=0.5)
 
     if figure_type == 'MPC':
         ax.plot3D(q21_REC[0], q21_REC[1], q21_REC[2], 'C0-', alpha=0.2)
-        ax.plot3D(q31_REC[0], q31_REC[1], q31_REC[2], 'C1-', alpha=0.2)
+        ax.plot3D(q31_REC[0], q31_REC[1], q31_REC[2], 'C0-', alpha=0.2)
 
         final_index = q21_MPC[0].size // 4 + 20
         section_to_plot = slice(0, final_index)
         section_to_plot_mpc = slice(final_index, final_index + 30)
 
-        for q_MPC, color_line, color_kite in [(q21_MPC, 'r', 'k'), (q31_MPC, 'm', 'k')]:
+        for q_MPC, color_line, color_kite in [(q21_MPC, 'r', 'k'), (q31_MPC, 'r', 'k')]:
             ax.plot3D(q_MPC[0][section_to_plot], q_MPC[1][section_to_plot], q_MPC[2][section_to_plot],
                       color_line + '-', alpha=0.75)
             ax.plot3D(q_MPC[0][section_to_plot_mpc], q_MPC[1][section_to_plot_mpc], q_MPC[2][section_to_plot_mpc],
@@ -205,10 +205,10 @@ for figure_type in ['SAM', 'REC', 'MPC']:
     q_REC_all = np.hstack([q_REC_all[0], q_REC_all[1]])
     meanpos = np.mean(q_REC_all, axis=1) + np.array([0, -50, 30])
 
-    bblenght = np.max(np.abs(q_REC_all - meanpos.reshape(3, 1))) / 2.3
+    bblenght = np.max(np.abs(q_REC_all - meanpos.reshape(3, 1))) / 1.5
 
     # ticks on the axis in 100m steps
-    ax.set_xticks(np.arange(-1000, 1000, 100))
+    ax.set_xticks(np.arange(500, 1500, 100))
     ax.set_yticks(np.arange(-1000, 1000, 100))
     ax.set_zticks(np.arange(-1000, 1000, 100))
 

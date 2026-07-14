@@ -19,7 +19,7 @@ import numpy as np
 
 # set the logger level to 'DEBUG' to see IPOPT output
 from awebox.logger.logger import Logger as awelogger
-awelogger.logger.setLevel(10)
+# awelogger.logger.setLevel(10)
 
 
 def run_SAM_MPC_experiment_dualkite(d=3, N=5):
@@ -58,9 +58,9 @@ def run_SAM_MPC_experiment_dualkite(d=3, N=5):
     # SAM Regularization: ratio matches the 2024 "found nice working parameters" run
     # (component_costs['SAM_regularization'] = SAM_Regularization*(1E-4*first_deriv + 1*third_deriv + 10*similar_durations)),
     # where similar-cycle-duration regularization dominates by orders of magnitude -- the opposite balance of what we had before.
-    single_regularization_param = 1.0
-    options['nlp.SAM.Regularization.AverageStateFirstDeriv'] = 1E-1 * single_regularization_param
-    options['nlp.SAM.Regularization.AverageStateThirdDeriv'] = 1E0 * single_regularization_param
+    single_regularization_param = 1E2
+    options['nlp.SAM.Regularization.AverageStateFirstDeriv'] = 1E1 * single_regularization_param
+    options['nlp.SAM.Regularization.AverageStateThirdDeriv'] = 1E-1 * single_regularization_param
     options['nlp.SAM.Regularization.AverageAlgebraicsThirdDeriv'] = 0 * single_regularization_param
     options['nlp.SAM.Regularization.SimilarMicroIntegrationDuration'] = 1E1 * single_regularization_param
 
@@ -91,6 +91,15 @@ def run_SAM_MPC_experiment_dualkite(d=3, N=5):
 
     print('======================================')
     print('Average power: {} kW'.format(avg_power))
+    print('======================================')
+    # print the costs:
+    cost_dict = trial.visualization.plot_dict['cost']
+    print('\n======================================')
+    print('Costs:')
+    for key, value in cost_dict.items():
+        val = float(value)
+        if np.abs(val) > 1e-10:
+            print(f'\t {key}:  {val:0.4f}')
     print('======================================')
 
     # %% Fake the AWEbox into recalibrating its visualz with the reconstructed trajectory
@@ -162,7 +171,7 @@ def run_SAM_MPC_experiment_dualkite(d=3, N=5):
     # Run the closed-loop simulation
     # only simulate a fraction of the full reel-out+reel-in duration: the plotting script only ever
     # shows a short section of the MPC trajectory near the start, and dual-kite MPC steps are expensive.
-    T_sim = T_opt / 10  # seconds
+    T_sim = T_opt / 5  # seconds
     N_sim = int(T_sim / ts)  # closed-loop simulation steps
 
     startTime = 0
